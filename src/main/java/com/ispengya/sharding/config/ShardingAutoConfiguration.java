@@ -65,7 +65,7 @@ public class ShardingAutoConfiguration {
     @Bean
     public DataSource dynamicDataSource() {
         Map<String, ShardingProperties.DataSourceConfig> dataSourceConfig =
-                shardingProperties.getDbs();
+                shardingProperties.getDataSources();
         Map<Object, Object> dataSourceMap = new HashMap<>();
 
         if (CollectionUtils.isEmpty(dataSourceConfig)) {
