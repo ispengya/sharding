@@ -38,11 +38,8 @@ public class ShardingDBAspect {
         this.shardingStrategyMap = shardingRuleRegistry.getDbStrategyMap();
     }
 
-    @Pointcut("@annotation(com.ispengya.sharding.DBRouter)")
-    public void aopPoint() {
-    }
 
-    @Around("aopPoint() && @annotation(dbRouter)")
+    @Around("@annotation(dbRouter)")
     public Object doRouter(ProceedingJoinPoint jp, DBRouter dbRouter) throws Throwable {
         String dbKeyAttr = getAttrValue(dbShardingRule.getShardingKey(), jp.getArgs());
         DBShardingStrategy dbShardingStrategy = shardingStrategyMap.get(dbShardingRule.getStrategyKey());

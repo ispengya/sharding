@@ -49,7 +49,7 @@ public class ShardingRuleRegistry {
         }
         dbShardingRule.setDbCount(dbShardingConfig.getDbCount());
         dbShardingRule.setShardingKey(dbShardingConfig.getShardingKey());
-        dbShardingRule.setShardingKey(dbShardingConfig.getShardingKey());
+        dbShardingRule.setStrategyKey(dbShardingConfig.getStrategyKey());
 
         loadSystemDBShardingStrategy();
     }
