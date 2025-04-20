@@ -1,15 +1,11 @@
 package com.ispengya.sharding.sharding;
 
-import com.alibaba.druid.sql.ast.expr.SQLIdentifierExpr;
 import com.alibaba.druid.sql.ast.statement.SQLExprTableSource;
 import com.alibaba.druid.sql.ast.statement.SQLJoinTableSource;
 import com.alibaba.druid.sql.ast.statement.SQLSelect;
 import com.alibaba.druid.sql.ast.statement.SQLSubqueryTableSource;
 import com.alibaba.druid.sql.dialect.mysql.visitor.MySqlASTVisitorAdapter;
 
-import java.lang.reflect.Field;
-import java.util.Map;
-import java.util.Set;
 
 public class ShardingTableVisitor extends MySqlASTVisitorAdapter {
 

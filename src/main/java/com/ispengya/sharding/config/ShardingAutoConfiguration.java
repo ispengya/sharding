@@ -8,7 +8,6 @@ import com.ispengya.sharding.sharding.ShardingRewriter;
 import com.ispengya.sharding.sharding.ShardingRuleRegistry;
 import com.ispengya.sharding.sharding.ShardingMybatisInterceptor;
 import com.ispengya.sharding.sharding.ShardingRoutingDataSource;
-import com.ispengya.sharding.sharding.ShardingTableVisitor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.session.SqlSessionFactory;

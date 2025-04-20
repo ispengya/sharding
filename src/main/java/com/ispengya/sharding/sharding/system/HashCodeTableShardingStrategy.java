@@ -1,7 +1,6 @@
 package com.ispengya.sharding.sharding.system;
 
 import com.ispengya.sharding.TableShardingStrategy;
-import com.ispengya.sharding.sharding.ShardingContextHolder;
 import com.ispengya.sharding.sharding.TableShardingRule;
 
 /**

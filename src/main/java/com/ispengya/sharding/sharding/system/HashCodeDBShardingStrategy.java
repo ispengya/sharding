@@ -2,7 +2,6 @@ package com.ispengya.sharding.sharding.system;
 
 import com.ispengya.sharding.DBShardingStrategy;
 import com.ispengya.sharding.sharding.DBShardingRule;
-import com.ispengya.sharding.sharding.ShardingContextHolder;
 
 /**
  * @description:
