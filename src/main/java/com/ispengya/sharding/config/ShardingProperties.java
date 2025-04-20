@@ -17,9 +17,9 @@ public class ShardingProperties {
     public static final String DYNAMIC_DATASOURCE_PREFIX = "sharding";
 
     private String primary;
-    private Map<String, TableShardingConfig> tbSharding;
+    private Map<String, TableShardingConfig> tableSharding;
     private DBShardingConfig dbSharding;
-    private Map<String, DataSourceConfig> dbs;
+    private Map<String, DataSourceConfig> dataSources;
 
 
     @Data
