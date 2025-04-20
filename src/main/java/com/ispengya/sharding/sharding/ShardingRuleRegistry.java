@@ -1,13 +1,17 @@
 package com.ispengya.sharding.sharding;
 
-import com.ispengya.sharding.ShardingRouteStrategy;
+import com.ispengya.sharding.DBShardingStrategy;
+import com.ispengya.sharding.TableShardingStrategy;
 import com.ispengya.sharding.common.error.ShardingException;
 import com.ispengya.sharding.config.ShardingProperties;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -20,42 +24,82 @@ import java.util.Set;
 @Data
 public class ShardingRuleRegistry {
 
-    private int dbCount;
-    private Set<String> logicTableNames;
-    private Map<String, ShardingRule> shardingRules;
-    private Map<String, ShardingRouteStrategy> strategyMap;
+    private Set<String> logicTableNames = new HashSet<>();
+    private DBShardingRule dbShardingRule = new DBShardingRule();
+    private Map<String, TableShardingRule> shardingRules = new HashMap<>();
+    private Map<String, TableShardingStrategy> tableStrategyMap= new HashMap<>();
+    private Map<String, DBShardingStrategy> dbStrategyMap = new HashMap<>();
 
     public ShardingRuleRegistry(ShardingProperties shardingProperties) {
         try {
-            initShardingRouteRules(shardingProperties);
-            log.info("ShardingRuleRegistry init : {}", shardingRules);
+            initTableShardingRouteRules(shardingProperties);
+            log.info("Table ShardingRule init : {}", shardingRules);
+
+            initDBShardingRouteRules(shardingProperties);
+            log.info("DB ShardingRule init : {}", dbShardingRule);
         } catch (Exception e) {
             throw new ShardingException(e.getMessage());
         }
     }
 
-    private void initShardingRouteRules(ShardingProperties shardingProperties)
-            throws ClassNotFoundException, NoSuchMethodException, InvocationTargetException, InstantiationException,
-                   IllegalAccessException {
-        Map<String, ShardingProperties.ShardingConfig> shardingConfigMap = shardingProperties.getSharding();
-        if (CollectionUtils.isEmpty(shardingConfigMap)) {
-            throw new ShardingException("sharding rule is empty");
+    private void initDBShardingRouteRules(ShardingProperties shardingProperties) throws Exception{
+        ShardingProperties.DBShardingConfig dbShardingConfig = shardingProperties.getDbSharding();
+        if (dbShardingConfig == null) {
+            throw new ShardingException("db Sharding config is null");
         }
-        dbCount = shardingProperties.getDbCount();
-        for (Map.Entry<String, ShardingProperties.ShardingConfig> entry : shardingConfigMap.entrySet()) {
-            ShardingRule shardingRule = new ShardingRule();
-            shardingRule.setDbCount(dbCount);
-            shardingRule.setShardingKey(entry.getValue().getShardingKey());
-            shardingRule.setTableCount(entry.getValue().getTableCount());
-            shardingRule.setShardingKey(entry.getValue().getShardingKey());
-            shardingRule.setLogicTableName(shardingRule.getLogicTableName());
+        dbShardingRule.setDbCount(dbShardingConfig.getDbCount());
+        dbShardingRule.setShardingKey(dbShardingConfig.getShardingKey());
+        dbShardingRule.setShardingKey(dbShardingConfig.getShardingKey());
+
+        loadSystemDBShardingStrategy();
+    }
+
+    private void initTableShardingRouteRules(ShardingProperties shardingProperties) throws Exception {
+        Map<String, ShardingProperties.TableShardingConfig> shardingConfigMap = shardingProperties.getSharding();
+        if (CollectionUtils.isEmpty(shardingConfigMap)) {
+            throw new ShardingException("table sharding config is empty");
+        }
+
+        for (Map.Entry<String, ShardingProperties.TableShardingConfig> entry : shardingConfigMap.entrySet()) {
+            TableShardingRule tableShardingRule = new TableShardingRule();
+            tableShardingRule.setShardingKey(entry.getValue().getShardingKey());
+            tableShardingRule.setTableCount(entry.getValue().getTableCount());
+            tableShardingRule.setShardingKey(entry.getValue().getShardingKey());
+            tableShardingRule.setLogicTableName(entry.getValue().getLogicTableName());
+            tableShardingRule.setStrategyKey(entry.getValue().getStrategyKey());
             logicTableNames.add(entry.getValue().getLogicTableName());
 
-            Class<?> clazz = Class.forName(entry.getValue().getStrategyClassName());
-            ShardingRouteStrategy strategy = (ShardingRouteStrategy) clazz.getDeclaredConstructor().newInstance();
-            strategyMap.put(entry.getValue().getStrategyKey(), strategy);
+            shardingRules.put(entry.getValue().getLogicTableName(), tableShardingRule);
+
+            if (StringUtils.isNotBlank(entry.getValue().getStrategyClassName())) {
+                Class<?> clazz = Class.forName(entry.getValue().getStrategyClassName());
+                TableShardingStrategy strategy = (TableShardingStrategy) clazz.getDeclaredConstructor().newInstance();
+                tableStrategyMap.put(entry.getValue().getStrategyKey(), strategy);
+            }
+
+            loadSystemTableShardingStrategy();
         }
+    }
 
+    private void loadSystemTableShardingStrategy() {
+        try {
+            Class<?> hash = Class.forName("com.ispengya.sharding.sharding.system.HashCodeTableShardingStrategy");
+            TableShardingStrategy hashStrategy = (TableShardingStrategy) hash.getDeclaredConstructor().newInstance();
 
+            tableStrategyMap.put("hash", hashStrategy);
+        } catch (Exception e) {
+            throw new ShardingException(e.getMessage());
+        }
+    }
+
+    private void loadSystemDBShardingStrategy() {
+        try {
+            Class<?> hash = Class.forName("com.ispengya.sharding.sharding.system.HashCodeDBShardingStrategy");
+            DBShardingStrategy hashStrategy = (DBShardingStrategy) hash.getDeclaredConstructor().newInstance();
+
+            dbStrategyMap.put("hash", hashStrategy);
+        } catch (Exception e) {
+            throw new ShardingException(e.getMessage());
+        }
     }
 }

@@ -17,8 +17,8 @@ public class ShardingProperties {
     public static final String DYNAMIC_DATASOURCE_PREFIX = "sharding";
 
     private String primary;
-    private Map<String, ShardingConfig> sharding;
-    private int dbCount;
+    private Map<String, TableShardingConfig> tbSharding;
+    private DBShardingConfig dbSharding;
     private Map<String, DataSourceConfig> dbs;
 
 
@@ -32,12 +32,20 @@ public class ShardingProperties {
     }
 
     @Data
-    public static class ShardingConfig {
+    public static class TableShardingConfig {
         private int tableCount;
         private String logicTableName;
         private String shardingKey;
         private String strategyKey = "hash";
-        private String strategyClassName = "com.ispengya.sharding.sharding.system.HashCodeShardingRouteStrategy";
+        private String strategyClassName;
+    }
+
+    @Data
+    public static class DBShardingConfig {
+        private int dbCount;
+        private String shardingKey;
+        private String strategyKey = "hash";
+        private String strategyClassName;
     }
 
     @Data

@@ -5,13 +5,11 @@ import lombok.Data;
 /**
  * @description:
  * @author: hanzhipeng
- * @create: 2025-04-20 12:51
+ * @create: 2025-04-20 17:07
  **/
 @Data
-public class ShardingRule {
+public class DBShardingRule {
     private int dbCount;
-    private int tableCount;
-    private String logicTableName;
     private String shardingKey;
     private String strategyKey;
 }

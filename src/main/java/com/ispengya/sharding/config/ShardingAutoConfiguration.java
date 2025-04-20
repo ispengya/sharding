@@ -3,6 +3,7 @@ package com.ispengya.sharding.config;
 import com.alibaba.druid.pool.DruidDataSource;
 import com.ispengya.sharding.common.error.ShardingException;
 import com.ispengya.sharding.common.tool.DbConfigValidator;
+import com.ispengya.sharding.sharding.ShardingDBAspect;
 import com.ispengya.sharding.sharding.ShardingRewriter;
 import com.ispengya.sharding.sharding.ShardingRuleRegistry;
 import com.ispengya.sharding.sharding.ShardingMybatisInterceptor;
@@ -57,6 +58,11 @@ public class ShardingAutoConfiguration {
     }
 
     @Bean
+    public ShardingDBAspect shardingDBAspect(ShardingRuleRegistry shardingRuleRegistry) {
+        return new ShardingDBAspect(shardingRuleRegistry);
+    }
+
+    @Bean
     public DataSource dynamicDataSource() {
         Map<String, ShardingProperties.DataSourceConfig> dataSourceConfig =
                 shardingProperties.getDbs();
@@ -79,9 +85,11 @@ public class ShardingAutoConfiguration {
     }
 
     @Bean
-    public SqlSessionFactory sqlSessionFactory(DataSource dynamicDataSource) throws Exception {
+    public SqlSessionFactory sqlSessionFactory(DataSource dynamicDataSource, ShardingRewriter shardingRewriter) throws Exception {
         SqlSessionFactoryBean factoryBean = new SqlSessionFactoryBean();
         factoryBean.setDataSource(dynamicDataSource);
+
+        factoryBean.setPlugins(shardingInterceptor(shardingRewriter));
         return factoryBean.getObject();
     }
 
