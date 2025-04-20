@@ -13,8 +13,8 @@ import java.util.Set;
 
 public class ShardingTableVisitor extends MySqlASTVisitorAdapter {
 
-    private Object parameter;
-    private ShardingRewriter rewriter;
+    private final Object parameter;
+    private final ShardingRewriter rewriter;
 
     public ShardingTableVisitor(Object parameter, ShardingRewriter rewriter) {
         this.parameter = parameter;
