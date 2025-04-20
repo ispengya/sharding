@@ -36,7 +36,8 @@ public class ShardingProperties {
         private int tableCount;
         private String logicTableName;
         private String shardingKey;
-        private String strategy;
+        private String strategyKey = "hash";
+        private String strategyClassName = "com.ispengya.sharding.sharding.system.HashCodeShardingRouteStrategy";
     }
 
     @Data

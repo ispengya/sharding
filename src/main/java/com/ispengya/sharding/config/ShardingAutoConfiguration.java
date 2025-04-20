@@ -3,8 +3,13 @@ package com.ispengya.sharding.config;
 import com.alibaba.druid.pool.DruidDataSource;
 import com.ispengya.sharding.common.error.ShardingException;
 import com.ispengya.sharding.common.tool.DbConfigValidator;
+import com.ispengya.sharding.sharding.ShardingRewriter;
+import com.ispengya.sharding.sharding.ShardingRuleRegistry;
+import com.ispengya.sharding.sharding.ShardingMybatisInterceptor;
 import com.ispengya.sharding.sharding.ShardingRoutingDataSource;
+import com.ispengya.sharding.sharding.ShardingTableVisitor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -27,39 +32,48 @@ import javax.sql.DataSource;
 @Configuration
 @EnableConfigurationProperties(ShardingProperties.class)
 public class ShardingAutoConfiguration {
-    
+
     private final ShardingProperties shardingProperties;
-    
+
     public ShardingAutoConfiguration(ShardingProperties shardingProperties) {
         this.shardingProperties = shardingProperties;
         log.info("Sharding properties : {}", shardingProperties);
     }
 
 
+    @Bean
+    public Interceptor shardingInterceptor(ShardingRewriter shardingRewriter) {
+        return new ShardingMybatisInterceptor(shardingRewriter);
+    }
 
+    @Bean
+    public ShardingRuleRegistry shardingMeta() {
+        return new ShardingRuleRegistry(shardingProperties);
+    }
 
-
-
-
-
+    @Bean
+    public ShardingRewriter shardingRewriter(ShardingRuleRegistry shardingRuleRegistry) {
+        return new ShardingRewriter(shardingRuleRegistry);
+    }
 
     @Bean
     public DataSource dynamicDataSource() {
         Map<String, ShardingProperties.DataSourceConfig> dataSourceConfig =
                 shardingProperties.getDbs();
         Map<Object, Object> dataSourceMap = new HashMap<>();
-        
+
         if (CollectionUtils.isEmpty(dataSourceConfig)) {
             throw new ShardingException("sharding datasource properties is empty");
         }
-        
+
         for (Map.Entry<String, ShardingProperties.DataSourceConfig> entry : dataSourceConfig.entrySet()) {
             DataSource dataSource = initDataSource(entry.getKey(), entry.getValue());
             dataSourceMap.put(entry.getKey(), dataSource);
         }
-        
-        ShardingRoutingDataSource shardingRoutingDataSource = new ShardingRoutingDataSource();
-        shardingRoutingDataSource.setDefaultTargetDataSource(dataSourceMap.get(shardingProperties.getPrimary()));
+
+        String primary = shardingProperties.getPrimary();
+        ShardingRoutingDataSource shardingRoutingDataSource = new ShardingRoutingDataSource(primary);
+        shardingRoutingDataSource.setDefaultTargetDataSource(dataSourceMap.get(primary));
         shardingRoutingDataSource.setTargetDataSources(dataSourceMap);
         return shardingRoutingDataSource;
     }
@@ -75,7 +89,6 @@ public class ShardingAutoConfiguration {
     public PlatformTransactionManager transactionManager(DataSource dynamicDataSource) {
         return new DataSourceTransactionManager(dynamicDataSource);
     }
-
 
     private DataSource initDataSource(String dbName, ShardingProperties.DataSourceConfig dataSourceConfig) {
         DbConfigValidator.validate(dbName, dataSourceConfig);
