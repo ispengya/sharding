@@ -55,7 +55,7 @@ public class ShardingRuleRegistry {
     }
 
     private void initTableShardingRouteRules(ShardingProperties shardingProperties) throws Exception {
-        Map<String, ShardingProperties.TableShardingConfig> shardingConfigMap = shardingProperties.getTbSharding();
+        Map<String, ShardingProperties.TableShardingConfig> shardingConfigMap = shardingProperties.getTableSharding();
         if (CollectionUtils.isEmpty(shardingConfigMap)) {
             throw new ShardingException("table sharding config is empty");
         }
