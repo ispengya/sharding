@@ -4,17 +4,16 @@ import com.alibaba.druid.pool.DruidDataSource;
 import com.ispengya.sharding.common.error.ShardingException;
 import com.ispengya.sharding.common.tool.DbConfigValidator;
 import com.ispengya.sharding.sharding.ShardingDBAspect;
-import com.ispengya.sharding.sharding.ShardingRewriter;
-import com.ispengya.sharding.sharding.ShardingRuleRegistry;
 import com.ispengya.sharding.sharding.ShardingMybatisInterceptor;
+import com.ispengya.sharding.sharding.ShardingRewriter;
 import com.ispengya.sharding.sharding.ShardingRoutingDataSource;
+import com.ispengya.sharding.sharding.ShardingRuleRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.util.CollectionUtils;
@@ -29,7 +28,6 @@ import javax.sql.DataSource;
  * @create: 2025-04-20 12:16
  **/
 @Slf4j
-@Configuration
 @EnableConfigurationProperties(ShardingProperties.class)
 public class ShardingAutoConfiguration {
 
