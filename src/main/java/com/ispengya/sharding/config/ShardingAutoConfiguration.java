@@ -15,6 +15,7 @@ import org.mybatis.spring.SqlSessionFactoryBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.util.CollectionUtils;
 
@@ -78,7 +79,8 @@ public class ShardingAutoConfiguration {
         ShardingRoutingDataSource shardingRoutingDataSource = new ShardingRoutingDataSource(primary);
         shardingRoutingDataSource.setDefaultTargetDataSource(dataSourceMap.get(primary));
         shardingRoutingDataSource.setTargetDataSources(dataSourceMap);
-        return shardingRoutingDataSource;
+        shardingRoutingDataSource.afterPropertiesSet();
+        return new LazyConnectionDataSourceProxy(shardingRoutingDataSource);
     }
 
     @Bean
