@@ -12,6 +12,15 @@
 - 支持复杂SQL（JOIN、子查询等）
 
 ## 快速开始
+### 1. 克隆项目
+```shell
+git clone https://github.com/ispengya/sharding.git
+```
+
+### 2. 本地打包
+```shell
+mvn clean install
+```
 
 ### 1. 引入依赖
 
@@ -230,7 +239,3 @@ sharding:
 ## 贡献指南
 
 欢迎提交Issue和Pull Request。
-
-## 许可证
-
-MIT License
