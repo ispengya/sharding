@@ -22,7 +22,7 @@ git clone https://github.com/ispengya/sharding.git
 mvn clean install
 ```
 
-### 1. 引入依赖
+### 3. 引入依赖
 
 ```xml
 <dependency>
@@ -32,7 +32,7 @@ mvn clean install
 </dependency>
 ```
 
-### 2. 配置文件
+### 4. 配置文件
 
 ```yaml
 sharding:
@@ -84,9 +84,9 @@ sharding:
       strategyClass: com.ispengya.sharding.strategy.HashShardingStrategy
 ```
 
-### 3. 使用方式
+### 5. 使用方式
 
-#### 3.1 注解方式
+#### 5.1 注解方式
 
 ```java
 @Mapper
@@ -121,19 +121,6 @@ public class HashShardingStrategy implements DBShardingStrategy {
         int idx = (size - 1) & (shardingValue.hashCode() ^ (shardingValue.hashCode() >>> 16));
         int dbIdx = idx / rule.getTableCount() + 1;
         return "ds_" + dbIdx;
-    }
-}
-```
-
-2. **Range分片策略**
-```java
-// 默认的范围分片实现
-public class RangeShardingStrategy implements DBShardingStrategy {
-    @Override
-    public String shard(DBShardingRule rule, String shardingValue) {
-        long value = Long.parseLong(shardingValue);
-        int dbIndex = (int) (value / 1000000) + 1;
-        return "ds_" + dbIndex;
     }
 }
 ```
