@@ -1,0 +1,40 @@
+# 真实 MySQL 双分片环境（可选）：
+# 日常回归用 H2（见 application.yml），需要 MySQL 特有行为（如 XA/2PC）时切换到本环境。
+# 用法：
+#   docker compose -f src/test/resources/docker-compose.yml up -d
+#   docker compose -f src/test/resources/docker-compose.yml down -v
+# 端口：shard-0 -> localhost:33061，shard-1 -> localhost:33062，root/root
+services:
+  mysql-shard-0:
+    image: mysql:5.7
+    container_name: sharding-mysql-0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: db_1
+    ports:
+      - "33061:3306"
+    volumes:
+      - ./mysql-init:/docker-entrypoint-initdb.d
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-proot", "--silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  mysql-shard-1:
+    image: mysql:5.7
+    container_name: sharding-mysql-1
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: db_2
+    ports:
+      - "33062:3306"
+    volumes:
+      - ./mysql-init:/docker-entrypoint-initdb.d
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-proot", "--silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
