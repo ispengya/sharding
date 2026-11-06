@@ -55,6 +55,21 @@
 | 3 | 基线断言预期"无字段 Bean 返回字符串 null"，实际返回 null | `Object.class.getSuperclass()` 为 null 触发 NPE，被切面 `catch (Exception)` 吞掉 | 修正断言并把该吞异常行为记入已知问题（阶段 2 修复） | 已修复 |
 | 4 | 首版 `HashCodeStrategyBaselineTest` 编译报错且无法定位匹配（Edit 失败） | 疑似文件含不可见字符 | 整文件重写后编译通过；此后新测试文件直接整写 | 已绕过 |
 
+### 测试基建补强（2026-11-06 追加，规划确认后执行）
+
+**规划确认**：集成测试必须打真实 MySQL；最低 3 台（2 主测分库分表、1 从测读写分离）；前期阶段（0~3）用例围绕分库分表与读写分离，事务按"写只落一个数据源"假设，三种事务模式从 LOCAL 阶段起逐个实现逐个测。
+
+**产出**：三节点 compose（master-1←slave 复制）+ `scripts/test.sh` 一键（起环境→等健康→mvn test）+ 集成测试默认切真库（H2 依赖与配置移除）；18 用例真库全绿；复制同步实测 1 秒内可见。
+
+| # | 问题 | 原因 | 修复方式 | 状态 |
+|---|---|---|---|---|
+| 1 | Docker 引擎再次掉线 | Docker Desktop 进程中途退出 | 重新拉起并等待就绪 | 已解决 |
+| 2 | `docker compose wait --wait-timeout` 报未知 flag | compose v2.31 的 `wait` 子命令不支持该参数 | 改用 `up -d --wait`（脚本同步修正） | 已解决 |
+| 3 | 主库初始化死锁：执行到 `slave-init.sh` 卡死 | 主库挂了整个 `mysql-init/` 目录，复制脚本在主库上等自己的 TCP 就绪（TCP 要等初始化结束） | 初始化脚本按角色分目录：`mysql-init/master/`、`mysql-init/slave/` | 已修复 |
+| 4 | 主库健康检查初始化期假阳性（socket ping 秒通） | 临时实例只开 socket | 健康检查改 TCP 探测 `mysqladmin ping -h127.0.0.1`；从库健康 = 双线程 Yes + 物理表出现 | 已修复 |
+| 5 | 从库复制线程正常但永远没有 `db_1` | master 初始化期的 DDL 不在当前 binlog 段（服务重启后新文件只含启动事件），按位点复制回放不到 | 从库 init 脚本手动重建库表，再从 master 当前位点起复制；测试期行事件照常同步（实测 1 秒可见） | 已修复 |
+| 6 | `--force-recreate` 后 init 脚本不执行 | 复用了旧匿名卷，MySQL 入口发现数据已初始化直接跳过 init | 加 `--renew-anon-volumes` | 已修复 |
+
 ### 已知问题清单（只记录不修，阶段 2+ 处理）
 
 | # | 问题 | 归属阶段 |

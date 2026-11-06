@@ -4,10 +4,15 @@
 
 ## 测试约定
 
-- 构建 JDK：**8**（`D:\Dev\jdk\jdk8`，命令前加 `JAVA_HOME="D:\Dev\jdk\jdk8"`）——JDK 17 与 Boot 2.1.3 管理的 Lombok 不兼容
-- 单测：JUnit 4 + Mockito（`spring-boot-starter-test` 自带），与代码同阶段提交，不后补
-- 集成测：默认用 H2（MySQL 模式）双内存库模拟分片；真实 MySQL 双分片环境已提供并验证（`src/test/resources/docker-compose.yml`，root/root，端口 33061/33062），需要 MySQL 特有行为时切换
-- 出口标准里"单测"指 `mvn test` 全绿；"集成"指对应场景的集成用例通过
+- 构建 JDK：**8**（`D:\Dev\jdk\jdk8`；`scripts/test.sh` 会自动检测切换）——JDK 17 与 Boot 2.1.3 管理的 Lombok 不兼容
+- 单测：JUnit 4 + Mockito（`spring-boot-starter-test` 自带），与代码同阶段提交，不后补；不碰数据库
+- 集成测：**默认打真实 MySQL 三节点**（`src/test/resources/docker-compose.yml`）：
+  - `mysql-master-1` :33061 `db_1` 分片1主库（兼读写分离组的主）
+  - `mysql-master-2` :33062 `db_2` 分片2主库
+  - `mysql-slave` :33063 复制自 master-1（读写分离从库；`SHOW SLAVE STATUS` 双线程 + 数据同步验证过）
+  - 一键：`bash scripts/test.sh`（起环境 → 等健康 → `mvn test`）；无 Docker 时只跑单测：`mvn test -Dtest='!*IntegrationTest'`
+- **测试重心**：阶段 0~3 的用例围绕分库分表与读写分离设计；事务按前期假设"**写只落一个数据源**"（单数据源写回归即可），跨数据源写与 LOCAL/2PC/3PC 模式用例从各自阶段起逐个补
+- 出口标准里"单测"指 `mvn test` 全绿；"集成"指对应场景的集成用例通过真库
 
 ---
 
@@ -16,7 +21,7 @@
 **目标：给现有行为上保险，后面每次重构都有回归参照。**
 
 - [x] 引入 `spring-boot-starter-test` + `h2`（test scope），搭 `src/test` 目录
-- [x] 集成测试数据库：H2（MySQL 模式）双内存库 `shard_0` / `shard_1` 为默认；`docker-compose.yml` 真实 MySQL 双分片环境同日补充并验证（建表/写入/健康检查）
+- [x] 集成测试数据库：**真实 MySQL 三节点**（2 主分库分表 + 1 从读写分离，带复制并验证同步）；一键 `scripts/test.sh`；H2 方案已移除（2026-11-06 追加补强，过程见 journal）
 - [x] 给**现状**写回归测试：
   - [x] 分库路由：`@DBRouter` 不同键值落到不同库（集成）
   - [x] 分表改写：SQL 被改写成物理表名（单测 + 集成落表断言）
