@@ -1,7 +1,7 @@
-package com.ispengya.sharding.sharding.system;
+package com.ispengya.sharding.algorithm;
 
-import com.ispengya.sharding.sharding.DBShardingRule;
-import com.ispengya.sharding.sharding.TableShardingRule;
+import com.ispengya.sharding.rule.DBShardingRule;
+import com.ispengya.sharding.rule.TableShardingRule;
 import org.junit.Test;
 
 import java.util.HashSet;

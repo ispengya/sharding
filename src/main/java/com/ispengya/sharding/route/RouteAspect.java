@@ -1,7 +1,9 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.route;
 
-import com.ispengya.sharding.DBRouter;
-import com.ispengya.sharding.DBShardingStrategy;
+import com.ispengya.sharding.annotation.DBRouter;
+import com.ispengya.sharding.algorithm.DBShardingStrategy;
+import com.ispengya.sharding.rule.DBShardingRule;
+import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.aspectj.lang.JoinPoint;
@@ -25,12 +27,12 @@ import java.util.Map;
 @Slf4j
 @Aspect
 @Order(Ordered.LOWEST_PRECEDENCE - 1)
-public class ShardingDBAspect {
+public class RouteAspect {
 
     private final DBShardingRule dbShardingRule;
     private final Map<String, DBShardingStrategy> shardingStrategyMap;
 
-    public ShardingDBAspect(ShardingRuleRegistry shardingRuleRegistry) {
+    public RouteAspect(ShardingRuleRegistry shardingRuleRegistry) {
         this.dbShardingRule = shardingRuleRegistry.getDbShardingRule();
         this.shardingStrategyMap = shardingRuleRegistry.getDbStrategyMap();
     }
@@ -41,11 +43,11 @@ public class ShardingDBAspect {
         String dbKeyAttr = getAttrValue(dbShardingRule.getShardingKey(), jp.getArgs());
         DBShardingStrategy dbShardingStrategy = shardingStrategyMap.get(dbShardingRule.getStrategyKey());
         String dbRouteKey = dbShardingStrategy.shard(dbShardingRule, dbKeyAttr);
-        ShardingContextHolder.setDbHolder(dbRouteKey);
+        RouteContextHolder.setDbHolder(dbRouteKey);
         try {
             return jp.proceed();
         } finally {
-            ShardingContextHolder.clearDbHolder();
+            RouteContextHolder.clearDbHolder();
         }
     }
 

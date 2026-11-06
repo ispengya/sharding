@@ -1,4 +1,4 @@
-package com.ispengya.sharding.common.error;
+package com.ispengya.sharding.exception;
 
 /**
  * @description:

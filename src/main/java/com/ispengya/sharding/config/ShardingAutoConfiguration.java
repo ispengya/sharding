@@ -1,13 +1,13 @@
 package com.ispengya.sharding.config;
 
 import com.alibaba.druid.pool.DruidDataSource;
-import com.ispengya.sharding.common.error.ShardingException;
-import com.ispengya.sharding.common.tool.DbConfigValidator;
-import com.ispengya.sharding.sharding.ShardingDBAspect;
-import com.ispengya.sharding.sharding.ShardingMybatisInterceptor;
-import com.ispengya.sharding.sharding.ShardingRewriter;
-import com.ispengya.sharding.sharding.ShardingRoutingDataSource;
-import com.ispengya.sharding.sharding.ShardingRuleRegistry;
+import com.ispengya.sharding.exception.ShardingException;
+import com.ispengya.sharding.config.DbConfigValidator;
+import com.ispengya.sharding.route.RouteAspect;
+import com.ispengya.sharding.sql.ShardingMybatisInterceptor;
+import com.ispengya.sharding.sql.ShardingRewriter;
+import com.ispengya.sharding.datasource.ShardingRoutingDataSource;
+import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -56,8 +56,8 @@ public class ShardingAutoConfiguration {
     }
 
     @Bean
-    public ShardingDBAspect shardingDBAspect(ShardingRuleRegistry shardingRuleRegistry) {
-        return new ShardingDBAspect(shardingRuleRegistry);
+    public RouteAspect shardingDBAspect(ShardingRuleRegistry shardingRuleRegistry) {
+        return new RouteAspect(shardingRuleRegistry);
     }
 
     @Bean

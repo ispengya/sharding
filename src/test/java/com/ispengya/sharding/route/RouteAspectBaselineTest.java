@@ -1,6 +1,7 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.route;
 
 import com.ispengya.sharding.config.ShardingProperties;
+import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -11,21 +12,21 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
 /**
- * 分库键提取行为基线（ShardingDBAspect.getAttrValue）。
+ * 分库键提取行为基线（RouteAspect.getAttrValue）。
  *
  * 基线事实（已知问题，见 docs/journal.md）：
  * - 多字符串参数取到字面量 "null"（String.valueOf(null)）
  * - 无对应字段的普通 Bean：getSuperclass 为 null 触发 NPE，被切面 catch 吞掉返回 null
  * 阶段 2 改造为 @Param 精确匹配 + 失败报错后，本组断言需同步更新。
  */
-public class ShardingDBAspectBaselineTest {
+public class RouteAspectBaselineTest {
 
     public static class Order {
         private String userId = "u-100";
         private String orderId = "o-100";
     }
 
-    private ShardingDBAspect aspect;
+    private RouteAspect aspect;
 
     @Before
     public void setUp() {
@@ -45,7 +46,7 @@ public class ShardingDBAspectBaselineTest {
         tables.put("t_order", table);
         properties.setTableSharding(tables);
 
-        aspect = new ShardingDBAspect(new ShardingRuleRegistry(properties));
+        aspect = new RouteAspect(new ShardingRuleRegistry(properties));
     }
 
     @Test

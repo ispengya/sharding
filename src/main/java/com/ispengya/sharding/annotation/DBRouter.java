@@ -1,4 +1,4 @@
-package com.ispengya.sharding;
+package com.ispengya.sharding.annotation;
 
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;

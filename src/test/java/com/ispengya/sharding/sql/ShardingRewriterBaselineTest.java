@@ -1,10 +1,12 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.sql;
 
 import com.alibaba.druid.sql.SQLUtils;
 import com.alibaba.druid.sql.ast.SQLStatement;
 import com.alibaba.druid.util.JdbcConstants;
 import com.ispengya.sharding.config.ShardingProperties;
-import com.ispengya.sharding.sharding.system.HashCodeTableShardingStrategy;
+import com.ispengya.sharding.algorithm.HashCodeTableShardingStrategy;
+import com.ispengya.sharding.rule.ShardingRuleRegistry;
+import com.ispengya.sharding.rule.TableShardingRule;
 import org.junit.Before;
 import org.junit.Test;
 

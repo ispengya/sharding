@@ -1,4 +1,4 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.sql;
 
 import com.alibaba.druid.DbType;
 import com.alibaba.druid.sql.SQLUtils;

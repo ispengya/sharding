@@ -1,7 +1,7 @@
-package com.ispengya.sharding.sharding.system;
+package com.ispengya.sharding.algorithm;
 
-import com.ispengya.sharding.DBShardingStrategy;
-import com.ispengya.sharding.sharding.DBShardingRule;
+import com.ispengya.sharding.algorithm.DBShardingStrategy;
+import com.ispengya.sharding.rule.DBShardingRule;
 
 /**
  * @description:

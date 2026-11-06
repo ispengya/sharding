@@ -1,4 +1,4 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.rule;
 
 import lombok.Data;
 

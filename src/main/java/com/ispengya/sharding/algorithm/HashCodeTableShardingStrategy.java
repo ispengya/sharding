@@ -1,7 +1,7 @@
-package com.ispengya.sharding.sharding.system;
+package com.ispengya.sharding.algorithm;
 
-import com.ispengya.sharding.TableShardingStrategy;
-import com.ispengya.sharding.sharding.TableShardingRule;
+import com.ispengya.sharding.algorithm.TableShardingStrategy;
+import com.ispengya.sharding.rule.TableShardingRule;
 
 /**
  * @description:

@@ -1,8 +1,8 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.rule;
 
-import com.ispengya.sharding.DBShardingStrategy;
-import com.ispengya.sharding.TableShardingStrategy;
-import com.ispengya.sharding.common.error.ShardingException;
+import com.ispengya.sharding.algorithm.DBShardingStrategy;
+import com.ispengya.sharding.algorithm.TableShardingStrategy;
+import com.ispengya.sharding.exception.ShardingException;
 import com.ispengya.sharding.config.ShardingProperties;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -82,7 +82,7 @@ public class ShardingRuleRegistry {
 
     private void loadSystemTableShardingStrategy() {
         try {
-            Class<?> hash = Class.forName("com.ispengya.sharding.sharding.system.HashCodeTableShardingStrategy");
+            Class<?> hash = Class.forName("com.ispengya.sharding.algorithm.HashCodeTableShardingStrategy");
             TableShardingStrategy hashStrategy = (TableShardingStrategy) hash.getDeclaredConstructor().newInstance();
 
             tableStrategyMap.put("hash", hashStrategy);
@@ -93,7 +93,7 @@ public class ShardingRuleRegistry {
 
     private void loadSystemDBShardingStrategy() {
         try {
-            Class<?> hash = Class.forName("com.ispengya.sharding.sharding.system.HashCodeDBShardingStrategy");
+            Class<?> hash = Class.forName("com.ispengya.sharding.algorithm.HashCodeDBShardingStrategy");
             DBShardingStrategy hashStrategy = (DBShardingStrategy) hash.getDeclaredConstructor().newInstance();
 
             dbStrategyMap.put("hash", hashStrategy);

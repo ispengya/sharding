@@ -1,7 +1,7 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.route;
 
-public class ShardingContextHolder {
-    private ShardingContextHolder() {
+public class RouteContextHolder {
+    private RouteContextHolder() {
     }
 
     private static final ThreadLocal<String> dbHolder = new ThreadLocal<>();

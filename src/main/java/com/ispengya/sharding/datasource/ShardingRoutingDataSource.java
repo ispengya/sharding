@@ -1,5 +1,6 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.datasource;
 
+import com.ispengya.sharding.route.RouteContextHolder;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
 
@@ -13,7 +14,7 @@ public class ShardingRoutingDataSource extends AbstractRoutingDataSource {
 
     @Override
     protected Object determineCurrentLookupKey() {
-        String dbKey = ShardingContextHolder.getDbHolder();
+        String dbKey = RouteContextHolder.getDbHolder();
         if (StringUtils.isBlank(dbKey)) {
             return defaultDataSourceName;
         }

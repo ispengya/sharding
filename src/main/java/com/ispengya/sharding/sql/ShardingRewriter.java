@@ -1,9 +1,11 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.sql;
 
 import com.alibaba.druid.sql.ast.expr.SQLIdentifierExpr;
 import com.alibaba.druid.sql.ast.statement.SQLExprTableSource;
-import com.ispengya.sharding.TableShardingStrategy;
-import com.ispengya.sharding.common.tool.ParamUtils;
+import com.ispengya.sharding.algorithm.TableShardingStrategy;
+import com.ispengya.sharding.rule.ShardingRuleRegistry;
+import com.ispengya.sharding.rule.TableShardingRule;
+import com.ispengya.sharding.util.ParamUtils;
 
 import java.lang.reflect.Field;
 import java.util.Map;

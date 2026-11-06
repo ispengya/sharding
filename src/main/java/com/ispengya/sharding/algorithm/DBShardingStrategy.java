@@ -1,6 +1,6 @@
-package com.ispengya.sharding;
+package com.ispengya.sharding.algorithm;
 
-import com.ispengya.sharding.sharding.DBShardingRule;
+import com.ispengya.sharding.rule.DBShardingRule;
 
 /**
  * @description:

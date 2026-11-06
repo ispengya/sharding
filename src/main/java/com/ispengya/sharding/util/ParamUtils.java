@@ -1,4 +1,4 @@
-package com.ispengya.sharding.common.tool;
+package com.ispengya.sharding.util;
 
 import java.lang.reflect.Field;
 import java.util.Map;

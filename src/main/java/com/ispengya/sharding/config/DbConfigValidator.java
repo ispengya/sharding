@@ -1,6 +1,6 @@
-package com.ispengya.sharding.common.tool;
+package com.ispengya.sharding.config;
 
-import com.ispengya.sharding.common.error.ShardingException;
+import com.ispengya.sharding.exception.ShardingException;
 import com.ispengya.sharding.config.ShardingProperties;
 import org.apache.commons.lang3.StringUtils;
 

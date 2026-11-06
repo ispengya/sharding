@@ -1,6 +1,6 @@
 package com.ispengya.sharding.integration.mapper;
 
-import com.ispengya.sharding.DBRouter;
+import com.ispengya.sharding.annotation.DBRouter;
 import com.ispengya.sharding.integration.model.TOrder;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;

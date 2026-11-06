@@ -1,4 +1,4 @@
-package com.ispengya.sharding.sharding;
+package com.ispengya.sharding.sql;
 
 import com.alibaba.druid.sql.ast.statement.SQLExprTableSource;
 import com.alibaba.druid.sql.ast.statement.SQLJoinTableSource;
