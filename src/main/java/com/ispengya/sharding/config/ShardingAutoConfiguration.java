@@ -1,11 +1,10 @@
 package com.ispengya.sharding.config;
 
-import com.alibaba.druid.pool.DruidDataSource;
 import com.ispengya.sharding.exception.ShardingException;
-import com.ispengya.sharding.config.DbConfigValidator;
 import com.ispengya.sharding.route.RouteAspect;
 import com.ispengya.sharding.sql.ShardingMybatisInterceptor;
 import com.ispengya.sharding.sql.ShardingRewriter;
+import com.ispengya.sharding.datasource.DataSourceFactory;
 import com.ispengya.sharding.datasource.ShardingRoutingDataSource;
 import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -71,7 +70,7 @@ public class ShardingAutoConfiguration {
         }
 
         for (Map.Entry<String, ShardingProperties.DataSourceConfig> entry : dataSourceConfig.entrySet()) {
-            DataSource dataSource = initDataSource(entry.getKey(), entry.getValue());
+            DataSource dataSource = DataSourceFactory.create(entry.getKey(), entry.getValue());
             dataSourceMap.put(entry.getKey(), dataSource);
         }
 
@@ -95,30 +94,6 @@ public class ShardingAutoConfiguration {
     @Bean
     public PlatformTransactionManager transactionManager(DataSource dynamicDataSource) {
         return new DataSourceTransactionManager(dynamicDataSource);
-    }
-
-    private DataSource initDataSource(String dbName, ShardingProperties.DataSourceConfig dataSourceConfig) {
-        DbConfigValidator.validate(dbName, dataSourceConfig);
-
-        DruidDataSource dataSource = new DruidDataSource();
-        dataSource.setDriverClassName(dataSourceConfig.getDriverClassName());
-        dataSource.setUrl(dataSourceConfig.getUrl());
-        dataSource.setUsername(dataSourceConfig.getUsername());
-        dataSource.setPassword(dataSourceConfig.getPassword());
-
-        ShardingProperties.ConnectionConfig connection = dataSourceConfig.getConnection();
-
-        dataSource.setInitialSize(connection.getInitialSize());
-        dataSource.setMinIdle(connection.getMinIdle());
-        dataSource.setMaxActive(connection.getMaxActive());
-        dataSource.setMaxWait(connection.getMaxWait());
-        dataSource.setValidationQuery(connection.getValidationQuery());
-        dataSource.setTestWhileIdle(connection.isTestWhileIdle());
-        dataSource.setTestOnBorrow(connection.isTestOnBorrow());
-        dataSource.setTestOnReturn(connection.isTestOnReturn());
-        dataSource.setTimeBetweenEvictionRunsMillis(connection.getTimeBetweenEvictionRunsMillis());
-        dataSource.setMinEvictableIdleTimeMillis(connection.getMinEvictableIdleTimeMillis());
-        return dataSource;
     }
 
 }
