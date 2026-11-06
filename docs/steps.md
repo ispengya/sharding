@@ -58,32 +58,35 @@ com.ispengya.sharding
 
 | 现在 | 改为 |
 |---|---|
-| 根包 `DBShardingStrategy` / `TableShardingStrategy` | `algorithm/ShardingAlgorithm`（统一 SPI，对应配置 `algorithm` 字段） |
-| `sharding/system/HashCodeDBShardingStrategy` 等 | `algorithm/HashShardingAlgorithm` 等内置实现 |
+| 根包 `DBShardingStrategy` / `TableShardingStrategy` | `algorithm/`（**接口合并推迟至阶段 2**，先原名移入） |
+| `sharding/system/HashCodeDBShardingStrategy` 等 | `algorithm/HashCode*`（原名移入，合并随阶段 2） |
 | `sharding/ShardingDBAspect` | `route/RouteAspect` |
 | `sharding/ShardingContextHolder` | `route/RouteContextHolder` |
 | `common/error/ShardingException` | `exception/ShardingException` |
 | `sharding/*`（Rewriter/Visitor/Interceptor） | `sql/*` |
 | `sharding/ShardingRoutingDataSource` | `datasource/ShardingRoutingDataSource` |
+| `common/tool/DbConfigValidator` | `config/DbConfigValidator` |
+| `common/tool/ParamUtils` | `util/ParamUtils` |
 
 ### 步骤
 
-- [ ] 按目标结构建包，用 IDE 重构工具执行移动与改名（禁止手工剪贴改错位）
-- [ ] 策略 SPI 统一：`DBShardingStrategy`/`TableShardingStrategy` 合并为 `ShardingAlgorithm`；注册方式定为**统一走 Spring 容器（bean 名 = 配置 algorithm 名），删除 strategyKey/strategyClassName 双字段与散落的 Map 注册**（配置字段的正式切换在阶段 2，此处仅收敛代码侧入口）
-- [ ] 拆 `ShardingAutoConfiguration`：建池逻辑抽成 `datasource/DataSourceFactory`，AutoConfiguration 只剩 bean 装配
-- [ ] 校验器归位：配置类校验进 `config/`，规则类校验进 `rule/`
-- [ ] 更新所有 import；测试只改 import，**断言一律不动**
-- [ ] 包结构说明补进本文档（后续阶段的新类按此落位）
+- [x] 按目标结构建包执行移动与改名（`git mv` + 脚本化替换；同包拆分导致的 6 处 import 由编译器驱动补齐）
+- [x] ~~策略 SPI 统一~~ **决策变更（2026-11-06）**：接口合并 `ShardingAlgorithm` 推迟到阶段 2——`ShardingContext` 形状（databases/algorithmParams）由阶段 2 配置模型定义，现在合并只能造半成品；本阶段仅将两接口移入 `algorithm/`（理由见 journal 阶段 1）
+- [x] 拆 `ShardingAutoConfiguration`：建池逻辑抽成 `datasource/DataSourceFactory`，AutoConfiguration 只剩 bean 装配
+- [x] 校验器归位：`config/DbConfigValidator`（规则类校验随阶段 2 的 rules 一起做）
+- [x] 更新所有 import 与反射 Class.forName 字符串；测试只改 import/类名，**断言一律未动**
+- [x] 包结构说明：本节目标结构 + 文末"新增代码落位约定"表
 
-**单测：** 阶段 0 全部用例（仅 import 更新）全绿
-**集成：** Spring 上下文启动 smoke 用例 + 阶段 0 集成用例
-**出口：`mvn test` 全绿，git diff 中除包名/类名/文件移动外无逻辑变更**
+**单测：** 阶段 0 全部 18 用例（仅 import/类型名更新）全绿
+**集成：** 阶段 0 集成用例（Spring 上下文启动即 smoke）全绿
+**出口（2026-11-06 达成，两批提交 `025be9f` 机械移动 + `f072efa` 职责拆分）：`mvn test` 全绿，批次一 diff 除包名/类名/文件移动外无逻辑变更**
 
 ## 阶段 2：配置模型重构（先分片）
 
 **目标：配置定稿形状落地——`dataSources`（节点级）+ `rules`（按逻辑表、不配不分片）。**
 
 - [ ] 重写 `ShardingProperties`：`dataSources`（master/slaves/节点级 connection）、`rules`（db: databases/shardingKey/algorithm/algorithmParams + table），删除旧 `dbSharding`/`tableSharding`
+- [ ] 合并策略接口为 `ShardingAlgorithm` + `ShardingContext`（自阶段 1 推迟），注册统一走 Spring 容器（bean 名 = algorithm 名），删除 strategyKey/strategyClassName 双字段
 - [ ] 启动校验扩展：`primary`/`databases` 引用存在、algorithm 存在、`databases` 非空
 - [ ] `ShardingRuleRegistry` 重构：按逻辑表查规则；**无规则 → primary 直通**（不改写表名、不要求分片键）
 - [ ] `@DBRouter` 加 `key` 属性；键提取改为 `@Param` 精确匹配优先，失败抛 `ShardingException`
