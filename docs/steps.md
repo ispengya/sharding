@@ -4,8 +4,9 @@
 
 ## 测试约定
 
+- 构建 JDK：**8**（`D:\Dev\jdk\jdk8`，命令前加 `JAVA_HOME="D:\Dev\jdk\jdk8"`）——JDK 17 与 Boot 2.1.3 管理的 Lombok 不兼容
 - 单测：JUnit 4 + Mockito（`spring-boot-starter-test` 自带），与代码同阶段提交，不后补
-- 集成测：Docker Compose 起 MySQL（2 主库 + 模拟从库环境），`src/test/resources/docker-compose.yml` 统一提供
+- 集成测：默认用 H2（MySQL 模式）双内存库模拟分片；真实 MySQL 双分片环境已提供并验证（`src/test/resources/docker-compose.yml`，root/root，端口 33061/33062），需要 MySQL 特有行为时切换
 - 出口标准里"单测"指 `mvn test` 全绿；"集成"指对应场景的集成用例通过
 
 ---
@@ -14,16 +15,16 @@
 
 **目标：给现有行为上保险，后面每次重构都有回归参照。**
 
-- [ ] 引入 `spring-boot-starter-test`，搭 `src/test` 目录
-- [ ] `docker-compose.yml`：db_1、db_2 两库 + 各自建表脚本
-- [ ] 给**现状**写回归测试：
-  - [ ] 分库路由：`@DBRouter` 不同键值落到不同库
-  - [ ] 分表改写：SQL 被改写成物理表名
-  - [ ] 分库键提取：单参数、多参数 `@Param`、取不到值的行为
-  - [ ] 事务：单库 `@Transactional` 提交/回滚正确
-- [ ] 记录已知问题清单（README 与配置键不一致等），只记录不修
+- [x] 引入 `spring-boot-starter-test` + `h2`（test scope），搭 `src/test` 目录
+- [x] 集成测试数据库：H2（MySQL 模式）双内存库 `shard_0` / `shard_1` 为默认；`docker-compose.yml` 真实 MySQL 双分片环境同日补充并验证（建表/写入/健康检查）
+- [x] 给**现状**写回归测试：
+  - [x] 分库路由：`@DBRouter` 不同键值落到不同库（集成）
+  - [x] 分表改写：SQL 被改写成物理表名（单测 + 集成落表断言）
+  - [x] 分库键提取：单参数、多参数、Bean、取不到值的行为（单测）
+  - [x] 事务：单库 `@Transactional` 提交/回滚正确（集成）
+- [x] 记录已知问题清单：见 [journal.md](journal.md) 阶段 0"已知问题清单"，只记录不修
 
-**出口：`mvn test` 全绿，现有行为全部有测试覆盖。**
+**出口（2026-11-06 达成）：`mvn test` 18 用例全绿，现有行为全部有测试覆盖。**
 
 ## 阶段 1：项目结构重构（纯重构，不改行为）
 

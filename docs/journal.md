@@ -9,7 +9,7 @@
 
 | 阶段 | 内容 | 状态 | 开始日期 | 完成日期 |
 |---|---|---|---|---|
-| 0 | 测试基建与行为基线 | 未开始 | | |
+| 0 | 测试基建与行为基线 | 完成 | 2026-11-06 | 2026-11-06 |
 | 1 | 项目结构重构 | 未开始 | | |
 | 2 | 配置模型重构（先分片） | 未开始 | | |
 | 3 | 读写分离（一写多读） | 未开始 | | |
@@ -43,13 +43,31 @@
 
 ## 阶段 0：测试基建与行为基线
 
-**日期：** 未开始
+**日期：** 2026-11-06（当日完成）
+**产出：** 18 个用例全绿（16 单测 + 2 集成）；`docker-compose.yml` 真实 MySQL 双分片环境（已验证）；分支 `feat/stage0-baseline`
 
 ### 问题与修复
 
 | # | 问题 | 原因 | 修复方式 | 状态 |
 |---|---|---|---|---|
-| | | | | |
+| 1 | `mvn compile` 在本机 JDK 17 下报 `module jdk.compiler does not opens` | Boot 2.1.3 管理的 Lombok 1.18.6 不支持 JDK 16+ | 不改 pom，统一用 `D:\Dev\jdk\jdk8` 构建（已写入 steps.md 测试约定） | 已修复 |
+| 2 | Docker 引擎未运行（Desktop 未启动），compose 方案无法落地 | 三天前正常退出后未再启动，开机未自启（服务码 1077） | 集成测试改用 H2（MySQL 模式）双内存库 `shard_0`/`shard_1`；同日启动 Docker Desktop 恢复引擎后补充 compose 并验证（建表/写入/健康检查），H2 仍为默认 | 已解决 |
+| 3 | 基线断言预期"无字段 Bean 返回字符串 null"，实际返回 null | `Object.class.getSuperclass()` 为 null 触发 NPE，被切面 `catch (Exception)` 吞掉 | 修正断言并把该吞异常行为记入已知问题（阶段 2 修复） | 已修复 |
+| 4 | 首版 `HashCodeStrategyBaselineTest` 编译报错且无法定位匹配（Edit 失败） | 疑似文件含不可见字符 | 整文件重写后编译通过；此后新测试文件直接整写 | 已绕过 |
+
+### 已知问题清单（只记录不修，阶段 2+ 处理）
+
+| # | 问题 | 归属阶段 |
+|---|---|---|
+| 1 | README 配置键过期：文档 `dbRule`/`tableRules`/`strategyClass`，代码 `dbSharding`/`tableSharding`/`strategyClassName` | 8（README 重写） |
+| 2 | README hash 公式与代码不一致：README 得 `ds_1` 起，代码 `idx % dbCount` 得 `ds_0` 起——数据源命名约定以代码为准 | 8 |
+| 3 | 多字符串参数取分库键得到字面量 `"null"`（`String.valueOf(null)`），静默路由到固定分片 | 2 |
+| 4 | 无对应字段的 Bean：NPE 被切面 catch 吞掉返回 null，无任何日志外的反馈 | 2 |
+| 5 | 分片键取不到时 SQL **静默不改写**，逻辑表名直发数据库，运行期才报表不存在 | 2 |
+| 6 | `tableSharding` 的 map key 不生效，必须显式配 `logicTableName` 字段，README 只展示了 map key | 2 |
+| 7 | `ConnectionConfig.testOnBorrow` 代码默认 `true`，README 参数表写 `false` | 8 |
+| 8 | README 示例 SQL 使用 `order`（MySQL 保留字）作表名，照抄会语法报错 | 8 |
+| 9 | `ParamUtils`：map 中无目标 key 时兜底返回 `param1`，可能取到错误语义的值 | 2 |
 
 ---
 

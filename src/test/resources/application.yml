@@ -1,0 +1,27 @@
+sharding:
+  primary: ds_0
+
+  dataSources:
+    ds_0:
+      driverClassName: org.h2.Driver
+      url: jdbc:h2:mem:shard_0;MODE=MySQL;DB_CLOSE_DELAY=-1
+      username: test
+      password: test
+    ds_1:
+      driverClassName: org.h2.Driver
+      url: jdbc:h2:mem:shard_1;MODE=MySQL;DB_CLOSE_DELAY=-1
+      username: test
+      password: test
+
+  # 阶段 0 基线使用当前（旧）配置键，阶段 2 重构为 rules 形状
+  dbSharding:
+    shardingKey: userId
+    dbCount: 2
+    strategyKey: hash
+
+  tableSharding:
+    t_order:
+      logicTableName: t_order
+      shardingKey: orderId
+      tableCount: 2
+      strategyKey: hash
