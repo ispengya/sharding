@@ -24,16 +24,17 @@ import static org.junit.Assert.fail;
 
 /**
  * 行为基线集成测试：分库路由、分表改写、事务提交/回滚。
- * 使用 H2（MySQL 模式）双内存库模拟两个分片，阶段 1/2 重构后本组断言不得变化。
+ * 打真实 MySQL（docker-compose 三节点：master-1:33061 / master-2:33062），
+ * 用 bash scripts/test.sh 一键起环境并执行；阶段 1/2 重构后本组断言不得变化。
  */
 @RunWith(SpringRunner.class)
 @SpringBootTest(classes = TestApp.class)
 public class ShardingTxIntegrationTest {
 
-    private static final String URL_0 = "jdbc:h2:mem:shard_0;MODE=MySQL;DB_CLOSE_DELAY=-1";
-    private static final String URL_1 = "jdbc:h2:mem:shard_1;MODE=MySQL;DB_CLOSE_DELAY=-1";
-    private static final String USER = "test";
-    private static final String PASSWORD = "test";
+    private static final String URL_0 = "jdbc:mysql://localhost:33061/db_1?serverTimezone=UTC&useSSL=false&characterEncoding=utf8";
+    private static final String URL_1 = "jdbc:mysql://localhost:33062/db_2?serverTimezone=UTC&useSSL=false&characterEncoding=utf8";
+    private static final String USER = "root";
+    private static final String PASSWORD = "root";
 
     private static final String DDL =
             "CREATE TABLE IF NOT EXISTS t_order_0 (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64), order_id VARCHAR(64))";

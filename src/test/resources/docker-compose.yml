@@ -1,40 +1,66 @@
-# 真实 MySQL 双分片环境（可选）：
-# 日常回归用 H2（见 application.yml），需要 MySQL 特有行为（如 XA/2PC）时切换到本环境。
-# 用法：
-#   docker compose -f src/test/resources/docker-compose.yml up -d
+# 真实 MySQL 三节点测试环境（集成测试默认目标）：
+#   mysql-master-1 :33061  db_1  分片1主库（同时作为读写分离组的主）
+#   mysql-master-2 :33062  db_2  分片2主库
+#   mysql-slave    :33063        复制自 master-1（读写分离从库；db_1 由复制产生，不预建）
+# 用法（推荐一键脚本）：
+#   ./scripts/test.sh
+# 手动：
+#   docker compose -f src/test/resources/docker-compose.yml up -d --wait
 #   docker compose -f src/test/resources/docker-compose.yml down -v
-# 端口：shard-0 -> localhost:33061，shard-1 -> localhost:33062，root/root
+# 账号：root / root；从库复制账号 repl / repl（master-1 初始化时创建）
 services:
-  mysql-shard-0:
+  mysql-master-1:
     image: mysql:5.7
-    container_name: sharding-mysql-0
+    container_name: sharding-mysql-master-1
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: db_1
     ports:
       - "33061:3306"
     volumes:
-      - ./mysql-init:/docker-entrypoint-initdb.d
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+      - ./mysql-init/master:/docker-entrypoint-initdb.d
+    command: --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --expire-logs-days=7
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-proot", "--silent"]
+      # 用 TCP 探测：初始化阶段临时实例只开 socket，TCP 通了才算初始化完成
+      test: ["CMD", "mysqladmin", "ping", "-h127.0.0.1", "-uroot", "-proot", "--silent"]
       interval: 5s
       timeout: 3s
       retries: 30
 
-  mysql-shard-1:
+  mysql-master-2:
     image: mysql:5.7
-    container_name: sharding-mysql-1
+    container_name: sharding-mysql-master-2
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: db_2
     ports:
       - "33062:3306"
     volumes:
-      - ./mysql-init:/docker-entrypoint-initdb.d
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+      - ./mysql-init/master:/docker-entrypoint-initdb.d
+    command: --server-id=2
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-proot", "--silent"]
+      test: ["CMD", "mysqladmin", "ping", "-h127.0.0.1", "-uroot", "-proot", "--silent"]
       interval: 5s
       timeout: 3s
       retries: 30
+
+  mysql-slave:
+    image: mysql:5.7
+    container_name: sharding-mysql-slave
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      # 刻意不设 MYSQL_DATABASE：db_1 由复制创建，预建会导致复制线程 1007 报错停摆
+    ports:
+      - "33063:3306"
+    volumes:
+      - ./mysql-init/slave/slave-init.sh:/docker-entrypoint-initdb.d/01_slave_init.sh:ro
+    command: --server-id=3
+    depends_on:
+      mysql-master-1:
+        condition: service_healthy
+    healthcheck:
+      # 双线程就绪 + 数据已同步（db_1 与物理表出现）才算健康，避免初始化期假阳性
+      test: ["CMD-SHELL", "mysql -uroot -proot -e 'SHOW SLAVE STATUS\\G' 2>/dev/null | grep -q 'Slave_IO_Running: Yes' && mysql -uroot -proot -e 'SHOW SLAVE STATUS\\G' 2>/dev/null | grep -q 'Slave_SQL_Running: Yes' && mysql -uroot -proot -N -e 'SHOW TABLES FROM db_1' 2>/dev/null | grep -q 't_order_0'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60

@@ -1,19 +1,20 @@
+# 集成测试默认打真实 MySQL（docker-compose 三节点，见同目录 docker-compose.yml）
 sharding:
   primary: ds_0
 
   dataSources:
     ds_0:
-      driverClassName: org.h2.Driver
-      url: jdbc:h2:mem:shard_0;MODE=MySQL;DB_CLOSE_DELAY=-1
-      username: test
-      password: test
+      driverClassName: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://localhost:33061/db_1?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
+      username: root
+      password: root
     ds_1:
-      driverClassName: org.h2.Driver
-      url: jdbc:h2:mem:shard_1;MODE=MySQL;DB_CLOSE_DELAY=-1
-      username: test
-      password: test
+      driverClassName: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://localhost:33062/db_2?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
+      username: root
+      password: root
 
-  # 阶段 0 基线使用当前（旧）配置键，阶段 2 重构为 rules 形状
+  # 阶段 0/1 基线使用当前（旧）配置键，阶段 2 重构为 rules 形状
   dbSharding:
     shardingKey: userId
     dbCount: 2
