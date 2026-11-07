@@ -17,10 +17,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-20 12:39
- **/
+ * 分片规则注册表：由 ShardingProperties 构建分库/分表规则与策略映射，供路由切面与 SQL 改写器查询。
+ */
 @Slf4j
 @Data
 public class ShardingRuleRegistry {

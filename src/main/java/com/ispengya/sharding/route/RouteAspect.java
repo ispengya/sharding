@@ -20,10 +20,8 @@ import java.lang.reflect.Method;
 import java.util.Map;
 
 /**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-20 14:15
- **/
+ * 分库路由切面：拦截标注 @DBRouter 的方法，从方法参数提取分库键值写入 RouteContextHolder，方法返回后清理上下文。
+ */
 @Slf4j
 @Aspect
 @Order(Ordered.LOWEST_PRECEDENCE - 1)

@@ -3,11 +3,6 @@ package com.ispengya.sharding.algorithm;
 import com.ispengya.sharding.algorithm.DBShardingStrategy;
 import com.ispengya.sharding.rule.DBShardingRule;
 
-/**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-20 17:25
- **/
 public class HashCodeDBShardingStrategy implements DBShardingStrategy {
     @Override
     public String shard(DBShardingRule dbShardingRule, String shardingValue) {

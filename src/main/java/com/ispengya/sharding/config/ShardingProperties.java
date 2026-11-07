@@ -6,10 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.Map;
 
 /**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-19 17:28
- **/
+ * sharding.* 配置属性绑定：数据源连接信息与分库分表规则。
+ */
 @Data
 @ConfigurationProperties(prefix = ShardingProperties.DYNAMIC_DATASOURCE_PREFIX)
 public class ShardingProperties {

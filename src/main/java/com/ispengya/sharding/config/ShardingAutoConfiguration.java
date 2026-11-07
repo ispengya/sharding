@@ -23,10 +23,8 @@ import java.util.Map;
 import javax.sql.DataSource;
 
 /**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-20 12:16
- **/
+ * Spring Boot 自动装配入口：注册分片规则、SQL 改写器、路由切面、MyBatis 拦截器、数据源与事务管理器等 Bean。
+ */
 @Slf4j
 @EnableConfigurationProperties(ShardingProperties.class)
 public class ShardingAutoConfiguration {

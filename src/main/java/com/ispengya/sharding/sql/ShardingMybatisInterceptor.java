@@ -19,10 +19,8 @@ import java.util.List;
 import java.util.Properties;
 
 /**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-20 12:34
- **/
+ * MyBatis 拦截器：在 StatementHandler.prepare 之前用 Druid 解析 SQL，并委托 ShardingRewriter 完成分表改写。
+ */
 @Intercepts({
         @Signature(type = StatementHandler.class, method = "prepare", args = {Connection.class, Integer.class})
 })

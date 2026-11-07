@@ -7,10 +7,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-20 12:18
- **/
+ * 标记于 Mapper 接口或方法：触发分库路由切面，方法进入时解析分库键并写入路由上下文，结束时清理。
+ */
 @Target({ElementType.METHOD, ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented

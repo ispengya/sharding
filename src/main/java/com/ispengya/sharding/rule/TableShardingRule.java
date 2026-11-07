@@ -3,10 +3,8 @@ package com.ispengya.sharding.rule;
 import lombok.Data;
 
 /**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-20 12:51
- **/
+ * 分表规则：逻辑表名、分表数量、分表键字段名、分表策略标识。
+ */
 @Data
 public class TableShardingRule {
     private int tableCount;

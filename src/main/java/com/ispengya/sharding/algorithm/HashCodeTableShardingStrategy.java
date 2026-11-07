@@ -3,11 +3,6 @@ package com.ispengya.sharding.algorithm;
 import com.ispengya.sharding.algorithm.TableShardingStrategy;
 import com.ispengya.sharding.rule.TableShardingRule;
 
-/**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-20 14:06
- **/
 
 public class HashCodeTableShardingStrategy implements TableShardingStrategy {
     @Override

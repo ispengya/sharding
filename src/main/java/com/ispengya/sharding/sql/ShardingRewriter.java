@@ -12,10 +12,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * @description:
- * @author: hanzhipeng
- * @create: 2025-04-20 13:35
- **/
+ * SQL 表名改写器：命中分表规则时按分表键计算物理表名并替换，未命中或取不到键时保持原样。
+ */
 public class ShardingRewriter {
 
     private final Set<String> logicTableNames;
