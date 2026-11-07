@@ -65,7 +65,7 @@ public class ShardingRewriterBaselineTest {
     }
 
     private String expectedTable(String orderId) {
-        return algorithm.calculate(ShardingContext.forTable(orderId, "t_order", 2, null));
+        return algorithm.calculateTable(ShardingContext.forTable(orderId, "t_order", 2, null));
     }
 
     @Test

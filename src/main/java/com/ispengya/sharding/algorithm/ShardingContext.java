@@ -7,7 +7,8 @@ import java.util.Map;
 
 /**
  * 分片计算上下文：携带分片键值与规则信息。
- * 数据源场景 databases 非空；分表场景 logicTableName/tableCount 非空；二者互斥。
+ * 数据源场景 databases 非空（配合 calculateDb 使用）；
+ * 分表场景 logicTableName/tableCount 非空（配合 calculateTable 使用）；二者互斥。
  */
 @Data
 public class ShardingContext {

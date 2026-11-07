@@ -80,7 +80,7 @@ sharding:
       db:
         databases: [ds_1, ds_2]      # 分片范围（dbCount 派生自列表长度）
         shardingKey: userId          # 分库键
-        algorithm: hash              # 内置算法，或 strategyClassName 指定自定义类
+        algorithm: hash              # 内置算法，或自定义算法的 @Algorithm 名
       table:
         shardingKey: orderId         # 分表键（可与分库键不同）
         algorithm: hash

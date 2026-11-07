@@ -28,43 +28,53 @@ public class RangeAlgorithmTest {
 
     @Test
     public void rangeMonthResolvesFromParams() {
-        assertEquals("ds_0", rangeMonth.calculate(
+        assertEquals("ds_0", rangeMonth.calculateDb(
                 ShardingContext.forDb("2026-03-15", Arrays.asList("ds_0", "ds_1"), monthParams())));
-        assertEquals("ds_1", rangeMonth.calculate(
+        assertEquals("ds_1", rangeMonth.calculateDb(
                 ShardingContext.forDb("2026-11-07", Arrays.asList("ds_0", "ds_1"), monthParams())));
         // yyyy-MM 形式同样支持
-        assertEquals("ds_1", rangeMonth.calculate(
+        assertEquals("ds_1", rangeMonth.calculateDb(
                 ShardingContext.forDb("2026-07", Arrays.asList("ds_0", "ds_1"), monthParams())));
     }
 
     @Test(expected = ShardingException.class)
     public void rangeMonthMissThrows() {
-        rangeMonth.calculate(ShardingContext.forDb("2027-01", Arrays.asList("ds_0", "ds_1"), monthParams()));
+        rangeMonth.calculateDb(ShardingContext.forDb("2027-01", Arrays.asList("ds_0", "ds_1"), monthParams()));
     }
 
     @Test(expected = ShardingException.class)
     public void rangeMonthTargetOutsideDatabasesThrows() {
         Map<String, String> params = monthParams();
         params.put("2026-01~2026-06", "ds_9");
-        rangeMonth.calculate(ShardingContext.forDb("2026-02", Arrays.asList("ds_0", "ds_1"), params));
+        rangeMonth.calculateDb(ShardingContext.forDb("2026-02", Arrays.asList("ds_0", "ds_1"), params));
     }
 
     @Test(expected = ShardingException.class)
     public void rangeMonthMissingParamsThrows() {
-        rangeMonth.calculate(ShardingContext.forDb("2026-01", Arrays.asList("ds_0", "ds_1"), null));
+        rangeMonth.calculateDb(ShardingContext.forDb("2026-01", Arrays.asList("ds_0", "ds_1"), null));
     }
 
     @Test
     public void rangeDayModuloTableCount() {
         String value = "2026-11-07";
         int expectedIdx = (int) Math.floorMod(LocalDate.parse(value).toEpochDay(), 30);
-        String actual = rangeDay.calculate(ShardingContext.forTable(value, "t_order", 30, null));
+        String actual = rangeDay.calculateTable(ShardingContext.forTable(value, "t_order", 30, null));
         assertEquals("t_order_" + expectedIdx, actual);
         assertTrue(actual.startsWith("t_order_"));
     }
 
     @Test(expected = ShardingException.class)
     public void rangeDayInvalidDateThrows() {
-        rangeDay.calculate(ShardingContext.forTable("not-a-date", "t_order", 30, null));
+        rangeDay.calculateTable(ShardingContext.forTable("not-a-date", "t_order", 30, null));
+    }
+
+    @Test(expected = ShardingException.class)
+    public void rangeMonthRejectsTableSide() {
+        rangeMonth.calculateTable(ShardingContext.forTable("2026-11-07", "t_order", 30, null));
+    }
+
+    @Test(expected = ShardingException.class)
+    public void rangeDayRejectsDbSide() {
+        rangeDay.calculateDb(ShardingContext.forDb("2026-11-07", Arrays.asList("ds_0", "ds_1"), null));
     }
 }

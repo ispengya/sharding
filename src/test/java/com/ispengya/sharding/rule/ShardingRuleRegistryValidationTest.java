@@ -1,6 +1,8 @@
 package com.ispengya.sharding.rule;
 
 import com.ispengya.sharding.algorithm.HashShardingAlgorithm;
+import com.ispengya.sharding.algorithm.RangeDayShardingAlgorithm;
+import com.ispengya.sharding.algorithm.RangeMonthShardingAlgorithm;
 import com.ispengya.sharding.algorithm.ShardingAlgorithm;
 import com.ispengya.sharding.config.ShardingProperties;
 import com.ispengya.sharding.exception.ShardingException;
@@ -137,6 +139,24 @@ public class ShardingRuleRegistryValidationTest {
         ShardingProperties properties = validProperties();
         properties.getRules().get("t_order").getDb().setAlgorithm("magic");
         new ShardingRuleRegistry(properties, algorithms());
+    }
+
+    @Test(expected = ShardingException.class)
+    public void tableOnlyAlgorithmRejectedInDbSection() {
+        ShardingProperties properties = validProperties();
+        properties.getRules().get("t_order").getDb().setAlgorithm("range_day");
+        Map<String, ShardingAlgorithm> algorithms = algorithms();
+        algorithms.put("range_day", new RangeDayShardingAlgorithm());
+        new ShardingRuleRegistry(properties, algorithms);
+    }
+
+    @Test(expected = ShardingException.class)
+    public void dbOnlyAlgorithmRejectedInTableSection() {
+        ShardingProperties properties = validProperties();
+        properties.getRules().get("t_order").getTable().setAlgorithm("range_month");
+        Map<String, ShardingAlgorithm> algorithms = algorithms();
+        algorithms.put("range_month", new RangeMonthShardingAlgorithm());
+        new ShardingRuleRegistry(properties, algorithms);
     }
 
     @Test(expected = ShardingException.class)

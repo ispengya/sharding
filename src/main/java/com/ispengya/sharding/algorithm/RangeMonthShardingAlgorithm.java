@@ -1,18 +1,20 @@
 package com.ispengya.sharding.algorithm;
 
+import com.ispengya.sharding.annotation.Algorithm;
 import com.ispengya.sharding.exception.ShardingException;
 
 import java.util.Map;
 
 /**
- * 按月范围分片算法（内置，Bean 名 "range_month"），仅用于数据源规则。
+ * 按月范围分片算法（内置，算法名 "range_month"），仅用于数据源规则（scope = DB）。
  * 键值取前 7 位（yyyy-MM），在 algorithmParams 的区间映射中查找目标数据源，
  * 例："2026-01~2026-06" -> "ds_1"。找不到区间或结果不在 databases 内均报错。
  */
+@Algorithm(value = "range_month", scope = Algorithm.Scope.DB)
 public class RangeMonthShardingAlgorithm implements ShardingAlgorithm {
 
     @Override
-    public String calculate(ShardingContext context) {
+    public String calculateDb(ShardingContext context) {
         Object value = context.getShardingValue();
         if (value == null) {
             throw new ShardingException("分片键值为空，无法计算 range_month 分片");
@@ -42,5 +44,10 @@ public class RangeMonthShardingAlgorithm implements ShardingAlgorithm {
             }
         }
         throw new ShardingException("range_month 未找到覆盖 " + month + " 的区间映射");
+    }
+
+    @Override
+    public String calculateTable(ShardingContext context) {
+        throw new ShardingException("range_month 仅用于分库规则（@Algorithm.scope = DB）");
     }
 }

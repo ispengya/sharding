@@ -1,9 +1,7 @@
 package com.ispengya.sharding.config;
 
-import com.ispengya.sharding.algorithm.HashShardingAlgorithm;
-import com.ispengya.sharding.algorithm.RangeDayShardingAlgorithm;
-import com.ispengya.sharding.algorithm.RangeMonthShardingAlgorithm;
 import com.ispengya.sharding.algorithm.ShardingAlgorithm;
+import com.ispengya.sharding.algorithm.ShardingAlgorithms;
 import com.ispengya.sharding.datasource.DataSourceFactory;
 import com.ispengya.sharding.datasource.ShardingRoutingDataSource;
 import com.ispengya.sharding.exception.ShardingException;
@@ -18,8 +16,10 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationListener;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -30,11 +30,14 @@ import java.util.Map;
 import javax.sql.DataSource;
 
 /**
- * Spring Boot 自动装配入口：注册内置分片算法、分片规则、SQL 改写器、路由切面、
- * MyBatis 拦截器、数据源与事务管理器等 Bean，并在启动完成后校验 @DBRouter 标注位置。
+ * Spring Boot 自动装配入口：组件扫描 algorithm/ 包发现内置分片算法，
+ * 并注册分片规则、SQL 改写器、路由切面、MyBatis 拦截器、数据源与事务管理器等 Bean，
+ * 启动完成后校验 @DBRouter 标注位置。
+ * 分片算法（内置与自定义）统一按类上 @Algorithm 注解发现，无手工 Bean 注册。
  */
 @Slf4j
 @EnableConfigurationProperties(ShardingProperties.class)
+@ComponentScan(basePackageClasses = ShardingAlgorithm.class)
 public class ShardingAutoConfiguration {
 
     private final ShardingProperties shardingProperties;
@@ -44,27 +47,12 @@ public class ShardingAutoConfiguration {
         log.info("Sharding properties : {}", shardingProperties);
     }
 
-    // ---------- 内置分片算法（Bean 名 = 配置中 algorithm 的引用名） ----------
-
-    @Bean
-    public ShardingAlgorithm hash() {
-        return new HashShardingAlgorithm();
-    }
-
-    @Bean
-    public ShardingAlgorithm range_month() {
-        return new RangeMonthShardingAlgorithm();
-    }
-
-    @Bean
-    public ShardingAlgorithm range_day() {
-        return new RangeDayShardingAlgorithm();
-    }
-
     // ---------- 规则与核心组件 ----------
 
     @Bean
-    public ShardingRuleRegistry shardingMeta(Map<String, ShardingAlgorithm> algorithms) {
+    public ShardingRuleRegistry shardingMeta(ApplicationContext applicationContext) {
+        Map<String, ShardingAlgorithm> algorithms = ShardingAlgorithms.collect(
+                applicationContext.getBeansOfType(ShardingAlgorithm.class).values());
         return new ShardingRuleRegistry(shardingProperties, algorithms);
     }
 

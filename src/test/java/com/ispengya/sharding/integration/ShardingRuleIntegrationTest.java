@@ -69,7 +69,7 @@ public class ShardingRuleIntegrationTest {
 
         // 规则表 → 按 userId 路由到 ds_1
         String ds1User = findValueForDb("ds_1");
-        String table = algorithm.calculate(ShardingContext.forTable("order-mixed", "t_order", 2, null));
+        String table = algorithm.calculateTable(ShardingContext.forTable("order-mixed", "t_order", 2, null));
         txService.insertOk(new TOrder("m-1", ds1User, "order-mixed"));
 
         assertEquals(1, count(URL_0, "t_plain"));
@@ -92,7 +92,7 @@ public class ShardingRuleIntegrationTest {
     private String findValueForDb(String targetDs) {
         for (int i = 0; i < 200; i++) {
             String candidate = "user-" + i;
-            String routed = algorithm.calculate(
+            String routed = algorithm.calculateDb(
                     ShardingContext.forDb(candidate, Arrays.asList("ds_0", "ds_1"), null));
             if (targetDs.equals(routed)) {
                 return candidate;

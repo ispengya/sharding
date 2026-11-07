@@ -35,7 +35,7 @@ public class ShardingRewriter {
         }
 
         ShardingAlgorithm algorithm = registry.getAlgorithms().get(rule.getAlgorithm());
-        String actualTable = algorithm.calculate(
+        String actualTable = algorithm.calculateTable(
                 ShardingContext.forTable(value, rule.getLogicTableName(), rule.getTableCount(), rule.getAlgorithmParams()));
         x.setExpr(new SQLIdentifierExpr(actualTable));
         return true;

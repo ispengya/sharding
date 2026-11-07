@@ -21,7 +21,7 @@ public class HashShardingAlgorithmTest {
     public void dbStrategyStaysWithinConfiguredRange() {
         Set<String> routed = new HashSet<String>();
         for (int i = 0; i < 100; i++) {
-            String ds = algorithm.calculate(ShardingContext.forDb("user-" + i, Arrays.asList("ds_0", "ds_1"), null));
+            String ds = algorithm.calculateDb(ShardingContext.forDb("user-" + i, Arrays.asList("ds_0", "ds_1"), null));
             assertTrue("越界分片: " + ds, "ds_0".equals(ds) || "ds_1".equals(ds));
             routed.add(ds);
         }
@@ -33,15 +33,15 @@ public class HashShardingAlgorithmTest {
     @Test
     public void dbStrategyIsDeterministic() {
         assertEquals(
-                algorithm.calculate(ShardingContext.forDb("user-42", Arrays.asList("ds_0", "ds_1"), null)),
-                algorithm.calculate(ShardingContext.forDb("user-42", Arrays.asList("ds_0", "ds_1"), null)));
+                algorithm.calculateDb(ShardingContext.forDb("user-42", Arrays.asList("ds_0", "ds_1"), null)),
+                algorithm.calculateDb(ShardingContext.forDb("user-42", Arrays.asList("ds_0", "ds_1"), null)));
     }
 
     @Test
     public void tableStrategyRenamesLogicTable() {
         Set<String> routed = new HashSet<String>();
         for (int i = 0; i < 100; i++) {
-            String table = algorithm.calculate(ShardingContext.forTable("order-" + i, "t_order", 2, null));
+            String table = algorithm.calculateTable(ShardingContext.forTable("order-" + i, "t_order", 2, null));
             assertTrue("越界物理表: " + table, "t_order_0".equals(table) || "t_order_1".equals(table));
             routed.add(table);
         }

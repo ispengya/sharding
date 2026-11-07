@@ -102,7 +102,7 @@ public class ShardingTxIntegrationTest {
         java.util.List<String> databases = java.util.Arrays.asList("ds_0", "ds_1");
         for (int i = 0; i < 200; i++) {
             String candidate = "user-" + i;
-            if (targetDs.equals(algorithm.calculate(ShardingContext.forDb(candidate, databases, null)))) {
+            if (targetDs.equals(algorithm.calculateDb(ShardingContext.forDb(candidate, databases, null)))) {
                 return candidate;
             }
         }
@@ -112,7 +112,7 @@ public class ShardingTxIntegrationTest {
     private String findValueForTable(String targetTable) {
         for (int i = 0; i < 200; i++) {
             String candidate = "order-" + i;
-            if (targetTable.equals(algorithm.calculate(ShardingContext.forTable(candidate, "t_order", 2, null)))) {
+            if (targetTable.equals(algorithm.calculateTable(ShardingContext.forTable(candidate, "t_order", 2, null)))) {
                 return candidate;
             }
         }

@@ -77,7 +77,7 @@ public class RouteAspectKeyExtractTest {
     }
 
     private String expectedDs(String value) {
-        return new HashShardingAlgorithm().calculate(
+        return new HashShardingAlgorithm().calculateDb(
                 ShardingContext.forDb(value, Arrays.asList("ds_0", "ds_1"), null));
     }
 

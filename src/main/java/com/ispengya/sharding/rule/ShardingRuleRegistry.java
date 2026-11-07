@@ -1,10 +1,12 @@
 package com.ispengya.sharding.rule;
 
 import com.ispengya.sharding.algorithm.ShardingAlgorithm;
+import com.ispengya.sharding.annotation.Algorithm;
 import com.ispengya.sharding.config.ShardingProperties;
 import com.ispengya.sharding.exception.ShardingException;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.ClassUtils;
 import org.springframework.util.CollectionUtils;
 
 import java.util.ArrayList;
@@ -88,7 +90,7 @@ public class ShardingRuleRegistry {
         if (isBlank(config.getShardingKey())) {
             throw new ShardingException("分片规则 " + logicTable + " 的 db.shardingKey 不能为空");
         }
-        checkAlgorithm(logicTable, config.getAlgorithm());
+        checkAlgorithm(logicTable, config.getAlgorithm(), true);
 
         DBShardingRule rule = new DBShardingRule();
         rule.setDatabases(new ArrayList<>(config.getDatabases()));
@@ -105,7 +107,7 @@ public class ShardingRuleRegistry {
         if (isBlank(config.getShardingKey())) {
             throw new ShardingException("分片规则 " + logicTable + " 的 table.shardingKey 不能为空");
         }
-        checkAlgorithm(logicTable, config.getAlgorithm());
+        checkAlgorithm(logicTable, config.getAlgorithm(), false);
 
         TableShardingRule rule = new TableShardingRule();
         rule.setLogicTableName(logicTable);
@@ -116,12 +118,24 @@ public class ShardingRuleRegistry {
         return rule;
     }
 
-    private void checkAlgorithm(String logicTable, String algorithm) {
+    private void checkAlgorithm(String logicTable, String algorithm, boolean dbSide) {
         if (isBlank(algorithm)) {
             throw new ShardingException("分片规则 " + logicTable + " 的 algorithm 不能为空");
         }
-        if (!algorithms.containsKey(algorithm)) {
+        ShardingAlgorithm instance = algorithms.get(algorithm);
+        if (instance == null) {
             throw new ShardingException("分片规则 " + logicTable + " 引用了不存在的算法: " + algorithm);
+        }
+        // scope 校验：实例无注解（测试直接构造注册表）时跳过，存在性已由上一步保证
+        Algorithm annotation = ClassUtils.getUserClass(instance).getAnnotation(Algorithm.class);
+        if (annotation == null) {
+            return;
+        }
+        if (dbSide && annotation.scope() == Algorithm.Scope.TABLE) {
+            throw new ShardingException("分片规则 " + logicTable + " 的 db 段引用了仅限分表的算法: " + algorithm);
+        }
+        if (!dbSide && annotation.scope() == Algorithm.Scope.DB) {
+            throw new ShardingException("分片规则 " + logicTable + " 的 table 段引用了仅限分库的算法: " + algorithm);
         }
     }
 

@@ -128,6 +128,17 @@
 - 新定义：`range_day` 语义 = `LocalDate.toEpochDay() % tableCount`（usage.md 未细化处的实现决策）
 - `@DBRouter` 增加 `key` 属性；标注位置启动校验落地（接口放行、普通类报错）
 
+### 追加决策（2026-11-07，用户反馈驱动）
+
+阶段 2 交付后按使用反馈修订算法 API（两处痛点：`ShardingContext` 互斥字段逼实现类自行二分 db/table；"Bean 名 = 配置引用名"是隐性约定）：
+
+- **接口拆分**：`ShardingAlgorithm.calculate` 拆为 `calculateDb` / `calculateTable` 两个方法，调用方（`RouteAspect` / `ShardingRewriter`）按规则段直调；仅支持一侧的算法在另一侧显式抛 `ShardingException`
+- **注册方式变更（破坏性）**：废除 Bean 名约定，改为 `@Algorithm("名字")` 注解（元注解 `@Component`）——组件扫描发现并实例化，`ShardingAlgorithms.collect()` 按注解 value 收敛注册表；未标注/空名/重名启动报错。内置与自定义算法统一走扫描发现：自动装配加 `@ComponentScan(basePackageClasses = ShardingAlgorithm.class)` 扫框架算法包（用户应用扫描不到框架包），自定义算法随应用组件扫描发现；`shardingMeta` 从 `ApplicationContext.getBeansOfType` 收集，不再有算法 `@Bean` 方法
+- **新增 `@Algorithm.scope`**（`DB` / `TABLE` / `BOTH`，默认 `BOTH`）：`range_month` 标 `DB`、`range_day` 标 `TABLE`，规则段错配在启动期报错而非首查报错；注册表实例无注解时（测试直接构造）跳过该检查
+- 文档同步：usage.md 第 5 节重写、第 7 节校验清单补两行，清理 plan.md/usage.md 残留的 `strategyClassName` 表述（阶段 2 删字段时漏改）
+- 测试：48 → 59 用例（新增收集器 5、scope 2、单侧拒绝 2、组件扫描发现集成 2），全绿
+- 过程问题：`@ComponentScan` 扫框架算法包时连 `target/test-classes` 同包测试夹具一起扫入（Spring 按 `@Algorithm` value 当 Bean 名，重名夹具在注册阶段即 `ConflictingBeanDefinitionException`）——带 `@Algorithm` 的测试夹具必须放在被扫描包之外，已挪至 `testsupport/AlgorithmFixtures`
+
 ---
 
 ## 阶段 3：读写分离（一写多读）

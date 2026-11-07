@@ -91,7 +91,7 @@ com.ispengya.sharding
 **目标：配置定稿形状落地——`dataSources`（节点级）+ `rules`（按逻辑表、不配不分片）。**
 
 - [x] 重写 `ShardingProperties`：`dataSources`（master/slaves/节点级 connection）、`rules`（db: databases/shardingKey/algorithm/algorithmParams + table），删除旧 `dbSharding`/`tableSharding`
-- [x] 合并策略接口为 `ShardingAlgorithm` + `ShardingContext`（自阶段 1 推迟），注册统一走 Spring 容器（bean 名 = algorithm 名），删除 strategyKey/strategyClassName 双字段（内置 hash/range_month/range_day）
+- [x] 合并策略接口为 `ShardingAlgorithm` + `ShardingContext`（自阶段 1 推迟），注册统一走 Spring 容器（bean 名 = algorithm 名），删除 strategyKey/strategyClassName 双字段（内置 hash/range_month/range_day）——**2026-11-07 修订**：接口拆为 `calculateDb`/`calculateTable`，注册改为 `@Algorithm` 注解扫描（理由见 journal 阶段 2）
 - [x] 启动校验扩展：`primary`/`databases` 引用存在、algorithm 存在、`databases` 非空、master 必配、tableCount>0、规则至少一段
 - [x] `ShardingRuleRegistry` 重构：按逻辑表查规则；**无规则 → primary 直通**（不改写表名、不要求分片键）
 - [x] `@DBRouter` 加 `key` 属性；键提取改为 `@Param` 精确匹配优先，失败抛 `ShardingException`（方法级 > 类级）
@@ -206,7 +206,8 @@ com.ispengya.sharding
 | 新增 | 落包 |
 |---|---|
 | `@TxMode`、`Mode` | `annotation/` |
+| `@Algorithm`（分片算法注册注解） | `annotation/` |
 | 协调策略、切面、协调者、事务日志 | `tx/`（协调者子包 `tx/coordinator/`） |
 | `ShardingConnection`、数据源工厂 | `datasource/` |
 | 负载均衡 | `loadbalance/` |
-| 新算法 | `algorithm/` |
+| 新算法、算法收集器 | `algorithm/` |

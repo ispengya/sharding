@@ -91,7 +91,7 @@ public class RouteAspect {
             throw new ShardingException("分库键 [" + matchedKey + "] 未配置于任何分库规则");
         }
         ShardingAlgorithm algorithm = registry.getAlgorithms().get(rule.getAlgorithm());
-        return algorithm.calculate(ShardingContext.forDb(value, rule.getDatabases(), rule.getAlgorithmParams()));
+        return algorithm.calculateDb(ShardingContext.forDb(value, rule.getDatabases(), rule.getAlgorithmParams()));
     }
 
     /**

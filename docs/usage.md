@@ -43,7 +43,7 @@ sharding:
       db:
         databases: [ds_1, ds_2]      # 分片范围（dbCount 派生自列表长度）
         shardingKey: userId          # 分库键
-        algorithm: hash              # 内置算法，或 strategyClassName 指定自定义类
+        algorithm: hash              # 内置算法，或自定义算法的 @Algorithm 名
       table:
         shardingKey: orderId         # 分表键（可与分库键不同）
         algorithm: hash
@@ -170,15 +170,20 @@ public class OrderService {
 
 ## 5. 自定义分片算法
 
-实现接口并注册为 Spring Bean，配置按名引用：
+实现接口并标注 `@Algorithm`，配置按注解名引用（无需注册 Bean，也不依赖 Bean 名）：
 
 ```java
-@Component("rangeMonth")
+@Algorithm("rangeMonth")               // 扫描发现并实例化，value 即配置引用名
 public class RangeMonthShardingAlgorithm implements ShardingAlgorithm {
     @Override
-    public String calculate(ShardingContext ctx) {
+    public String calculateDb(ShardingContext ctx) {
         // ctx：键值、databases 范围、algorithmParams
         return ...;                    // 返回 dataSources 中的 key
+    }
+
+    @Override
+    public String calculateTable(ShardingContext ctx) {
+        throw new ShardingException("本算法仅用于分库");   // 只支持一侧时显式拒绝
     }
 }
 ```
@@ -190,10 +195,17 @@ sharding:
       db:
         databases: [ds_1, ds_2]
         shardingKey: tradeDate
-        algorithm: rangeMonth          # 引用 bean 名，或用 strategyClassName 指定全限定类
+        algorithm: rangeMonth          # 引用 @Algorithm("rangeMonth") 的算法名
 ```
 
-内置算法：`hash`（取模）、`range_month` / `range_day`（范围）。
+规则：
+
+- 分库与分表是**两个方法**：`calculateDb`（返回数据源名）与 `calculateTable`（返回物理表名），按规则段各走各的
+- 类必须位于应用组件扫描范围内（`@Algorithm` 是 Spring 注解，走正常组件扫描发现）；未标注注解、名称为空或重名 → 启动报错
+- `@Algorithm(scope = ...)` 声明算法允许的规则段（`DB` / `TABLE` / `BOTH`，默认 `BOTH`），错配启动即报错
+- 算法类可正常使用 `@Value` / `@Autowired`（实例由 Spring 创建）
+
+内置算法：`hash`（取模，两侧可用）、`range_month`（仅分库）、`range_day`（仅分表）。
 
 ## 6. 典型场景
 
@@ -259,7 +271,9 @@ public void placeOrder(User u, Order o, Stock s) { ... }
 |---|---|
 | `@DBRouter` 标注在非 Mapper Bean 上 | 启动 |
 | `databases` / `primary` 引用了不存在的数据源 key | 启动 |
-| `algorithm` 引用的策略不存在 | 启动 |
+| `algorithm` 引用的算法不存在 | 启动 |
+| 算法类未标注 `@Algorithm` / 名称为空 / 重名 | 启动 |
+| 算法 `scope` 与规则段错配（如仅分库算法配到 table 段） | 启动 |
 | 分库键取不到值（参数里找不到） | 调用 |
 | `route = SLAVE` 在活动事务内使用 | 调用 |
 | 事务写入多个数据源但未标注 `@TxMode` | 调用（事务整体回滚） |
