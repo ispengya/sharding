@@ -27,12 +27,16 @@ public class ShardingContext {
         this.algorithmParams = algorithmParams;
     }
 
-    /** 数据源分片上下文 */
+    /**
+     * 数据源分片上下文
+     */
     public static ShardingContext forDb(Object value, List<String> databases, Map<String, String> params) {
         return new ShardingContext(value, databases, null, 0, params);
     }
 
-    /** 分表上下文 */
+    /**
+     * 分表上下文
+     */
     public static ShardingContext forTable(Object value, String logicTableName, int tableCount, Map<String, String> params) {
         return new ShardingContext(value, null, logicTableName, tableCount, params);
     }

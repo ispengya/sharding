@@ -24,18 +24,28 @@ public class ShardingProperties {
     private Map<String, DataSourceGroup> dataSources = new LinkedHashMap<>();
     private Map<String, ShardingRuleConfig> rules = new LinkedHashMap<>();
 
-    /** 逻辑数据源组：一主多从 */
+    /**
+     * 逻辑数据源组：一主多从
+     */
     @Data
     public static class DataSourceGroup {
-        /** 主库节点（必配） */
+        /**
+         * 主库节点（必配）
+         */
         private NodeConfig master;
-        /** 从库节点列表（选配；配置即开启读写分离，阶段 3 生效） */
+        /**
+         * 从库节点列表（选配；配置即开启读写分离，阶段 3 生效）
+         */
         private List<NodeConfig> slaves = new ArrayList<>();
-        /** 从库间负载均衡：round_robin | random（阶段 3 生效） */
+        /**
+         * 从库间负载均衡：round_robin | random（阶段 3 生效）
+         */
         private String loadBalance = "round_robin";
     }
 
-    /** 物理节点连接配置（主从各自独立，连接池参数互不影响） */
+    /**
+     * 物理节点连接配置（主从各自独立，连接池参数互不影响）
+     */
     @Data
     public static class NodeConfig {
         private String driverClassName;
@@ -45,24 +55,32 @@ public class ShardingProperties {
         private ConnectionConfig connection = new ConnectionConfig();
     }
 
-    /** 单个逻辑表的分片规则：db 段与 table 段至少配置其一 */
+    /**
+     * 单个逻辑表的分片规则：db 段与 table 段至少配置其一
+     */
     @Data
     public static class ShardingRuleConfig {
         private DbRuleConfig db;
         private TableRuleConfig table;
     }
 
-    /** 分库段：分片范围 + 分库键 + 算法 */
+    /**
+     * 分库段：分片范围 + 分库键 + 算法
+     */
     @Data
     public static class DbRuleConfig {
-        /** 参与分片的逻辑数据源列表（长度即分库数） */
+        /**
+         * 参与分片的逻辑数据源列表（长度即分库数）
+         */
         private List<String> databases = new ArrayList<>();
         private String shardingKey;
         private String algorithm = "hash";
         private Map<String, String> algorithmParams = new LinkedHashMap<>();
     }
 
-    /** 分表段：分表数量 + 分表键 + 算法 */
+    /**
+     * 分表段：分表数量 + 分表键 + 算法
+     */
     @Data
     public static class TableRuleConfig {
         private int tableCount;
@@ -71,7 +89,9 @@ public class ShardingProperties {
         private Map<String, String> algorithmParams = new LinkedHashMap<>();
     }
 
-    /** 连接池参数（节点级，缺省用内置默认值） */
+    /**
+     * 连接池参数（节点级，缺省用内置默认值）
+     */
     @Data
     public static class ConnectionConfig {
         private int initialSize = 5;

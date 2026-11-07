@@ -125,7 +125,9 @@ public class ShardingRuleRegistry {
         }
     }
 
-    /** 全部已配置的分库键（按配置顺序、去重），供路由切面依次尝试提取 */
+    /**
+     * 全部已配置的分库键（按配置顺序、去重），供路由切面依次尝试提取
+     */
     public List<String> getDbShardingKeys() {
         Set<String> keys = new LinkedHashSet<>();
         for (DBShardingRule rule : dbRules.values()) {
@@ -134,7 +136,9 @@ public class ShardingRuleRegistry {
         return new ArrayList<>(keys);
     }
 
-    /** 按分库键查找规则（同键多规则时取先配置的） */
+    /**
+     * 按分库键查找规则（同键多规则时取先配置的）
+     */
     public DBShardingRule findDbRuleByKey(String shardingKey) {
         for (DBShardingRule rule : dbRules.values()) {
             if (rule.getShardingKey().equals(shardingKey)) {

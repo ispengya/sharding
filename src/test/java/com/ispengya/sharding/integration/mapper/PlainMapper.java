@@ -5,7 +5,9 @@ import com.ispengya.sharding.integration.model.TPlain;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 
-/** 无规则表 Mapper：普通方法不标注（直通 primary），routed 方法验证键取不到时报错。 */
+/**
+ * 无规则表 Mapper：普通方法不标注（直通 primary），routed 方法验证键取不到时报错。
+ */
 public interface PlainMapper {
 
     @Insert("INSERT INTO t_plain (id) VALUES (#{id})")

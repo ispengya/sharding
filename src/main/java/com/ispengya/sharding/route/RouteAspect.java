@@ -94,7 +94,9 @@ public class RouteAspect {
         return algorithm.calculate(ShardingContext.forDb(value, rule.getDatabases(), rule.getAlgorithmParams()));
     }
 
-    /** 按名称从方法参数提取键值：单参数直接取，多参数按 @Param 精确匹配、paramN 约定、POJO 字段依次尝试 */
+    /**
+     * 按名称从方法参数提取键值：单参数直接取，多参数按 @Param 精确匹配、paramN 约定、POJO 字段依次尝试
+     */
     String extractValue(String name, Method method, Object[] args) {
         if (args == null || args.length == 0) {
             return null;
@@ -144,7 +146,9 @@ public class RouteAspect {
         return field != null ? String.valueOf(field) : null;
     }
 
-    /** 沿父类链安全查找字段（修复旧实现父类为 Object 时的 NPE 吞没问题） */
+    /**
+     * 沿父类链安全查找字段（修复旧实现父类为 Object 时的 NPE 吞没问题）
+     */
     private Object readField(Object target, String name) {
         for (Class<?> type = target.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
             try {
