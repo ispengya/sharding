@@ -90,18 +90,18 @@ com.ispengya.sharding
 
 **目标：配置定稿形状落地——`dataSources`（节点级）+ `rules`（按逻辑表、不配不分片）。**
 
-- [ ] 重写 `ShardingProperties`：`dataSources`（master/slaves/节点级 connection）、`rules`（db: databases/shardingKey/algorithm/algorithmParams + table），删除旧 `dbSharding`/`tableSharding`
-- [ ] 合并策略接口为 `ShardingAlgorithm` + `ShardingContext`（自阶段 1 推迟），注册统一走 Spring 容器（bean 名 = algorithm 名），删除 strategyKey/strategyClassName 双字段
-- [ ] 启动校验扩展：`primary`/`databases` 引用存在、algorithm 存在、`databases` 非空
-- [ ] `ShardingRuleRegistry` 重构：按逻辑表查规则；**无规则 → primary 直通**（不改写表名、不要求分片键）
-- [ ] `@DBRouter` 加 `key` 属性；键提取改为 `@Param` 精确匹配优先，失败抛 `ShardingException`
-- [ ] 启动校验：`@DBRouter` 出现在非 Mapper Bean → 启动报错
-- [ ] **预留口子**：把"逻辑数据源 → 物理连接"的选取收敛到单一方法（读写分离阶段只在这一处插入）
-- [ ] 本阶段不实现 `slaves`/`route`（配置字段可先绑定，路由忽略）
+- [x] 重写 `ShardingProperties`：`dataSources`（master/slaves/节点级 connection）、`rules`（db: databases/shardingKey/algorithm/algorithmParams + table），删除旧 `dbSharding`/`tableSharding`
+- [x] 合并策略接口为 `ShardingAlgorithm` + `ShardingContext`（自阶段 1 推迟），注册统一走 Spring 容器（bean 名 = algorithm 名），删除 strategyKey/strategyClassName 双字段（内置 hash/range_month/range_day）
+- [x] 启动校验扩展：`primary`/`databases` 引用存在、algorithm 存在、`databases` 非空、master 必配、tableCount>0、规则至少一段
+- [x] `ShardingRuleRegistry` 重构：按逻辑表查规则；**无规则 → primary 直通**（不改写表名、不要求分片键）
+- [x] `@DBRouter` 加 `key` 属性；键提取改为 `@Param` 精确匹配优先，失败抛 `ShardingException`（方法级 > 类级）
+- [x] 启动校验：`@DBRouter` 出现在非 Mapper Bean → 启动报错（`DBRouterPlacementValidator`）
+- [x] **预留口子**：`datasource/RouteResolver.resolve()` 收敛逻辑数据源选取（读写分离阶段只在这一处插入）
+- [x] 本阶段不实现 `slaves`/`route`（配置字段已绑定，路由忽略）
 
-**单测：** 属性绑定、每条启动校验的失败用例、键提取三种路径、无规则直通判断
-**集成：** ① 无规则表落 primary ② order 表按规则分片 ③ 混合场景 ④ 键取不到报错
-**出口：** 阶段 0/1 回归用例不改断言依然通过 + 新增用例全绿
+**单测：** 属性/规则绑定、13 条启动校验用例、键提取 7 路径、无规则直通判断、范围算法
+**集成：** ① 无规则表落 primary ② order 表按规则分片 ③ 混合场景 ④ 键取不到报错（真实 MySQL）
+**出口（2026-11-07 达成，提交 `15d5be4`）：48 用例全绿；分库路由/分表改写/事务回滚等行为断言未动，已知问题 #3/#4/#5/#6/#9 相关的基线断言按 usage.md 新语义翻转（记录于 journal）**
 
 ## 阶段 3：读写分离（一写多读）
 

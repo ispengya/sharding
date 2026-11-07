@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | 0 | 测试基建与行为基线 | 完成 | 2026-11-06 | 2026-11-06 |
 | 1 | 项目结构重构 | 完成 | 2026-11-06 | 2026-11-06 |
-| 2 | 配置模型重构（先分片） | 未开始 | | |
+| 2 | 配置模型重构（先分片） | 完成 | 2026-11-07 | 2026-11-07 |
 | 3 | 读写分离（一写多读） | 未开始 | | |
 | 4 | 包装式多连接 | 未开始 | | |
 | 5 | LOCAL 模式 + `@TxMode` | 未开始 | | |
@@ -76,13 +76,13 @@
 |---|---|---|
 | 1 | README 配置键过期：文档 `dbRule`/`tableRules`/`strategyClass`，代码 `dbSharding`/`tableSharding`/`strategyClassName` | 8（README 重写） |
 | 2 | README hash 公式与代码不一致：README 得 `ds_1` 起，代码 `idx % dbCount` 得 `ds_0` 起——数据源命名约定以代码为准 | 8 |
-| 3 | 多字符串参数取分库键得到字面量 `"null"`（`String.valueOf(null)`），静默路由到固定分片 | 2 |
-| 4 | 无对应字段的 Bean：NPE 被切面 catch 吞掉返回 null，无任何日志外的反馈 | 2 |
-| 5 | 分片键取不到时 SQL **静默不改写**，逻辑表名直发数据库，运行期才报表不存在 | 2 |
-| 6 | `tableSharding` 的 map key 不生效，必须显式配 `logicTableName` 字段，README 只展示了 map key | 2 |
+| 3 | 多字符串参数取分库键得到字面量 `"null"`（`String.valueOf(null)`），静默路由到固定分片 | **已修复（阶段 2）** |
+| 4 | 无对应字段的 Bean：NPE 被切面 catch 吞掉返回 null，无任何日志外的反馈 | **已修复（阶段 2）** |
+| 5 | 分片键取不到时 SQL **静默不改写**，逻辑表名直发数据库，运行期才报表不存在 | **已修复（阶段 2）** |
+| 6 | `tableSharding` 的 map key 不生效，必须显式配 `logicTableName` 字段，README 只展示了 map key | **已修复（阶段 2）** |
 | 7 | `ConnectionConfig.testOnBorrow` 代码默认 `true`，README 参数表写 `false` | 8 |
 | 8 | README 示例 SQL 使用 `order`（MySQL 保留字）作表名，照抄会语法报错 | 8 |
-| 9 | `ParamUtils`：map 中无目标 key 时兜底返回 `param1`，可能取到错误语义的值 | 2 |
+| 9 | `ParamUtils`：map 中无目标 key 时兜底返回 `param1`，可能取到错误语义的值 | **已修复（阶段 2）** |
 
 ---
 
@@ -107,13 +107,26 @@
 
 ## 阶段 2：配置模型重构（先分片）
 
-**日期：** 未开始
+**日期：** 2026-11-07（当日完成）
+**产出：** `15d5be4` 配置模型与 SPI 合并 + `afec24e` 类注释清理（应用户要求先行）；48 用例全绿（9 个测试类，含真实 MySQL 集成）
 
 ### 问题与修复
 
 | # | 问题 | 原因 | 修复方式 | 状态 |
 |---|---|---|---|---|
-| | | | | |
+| 1 | `ContextRefreshedEvent` 编译报"找不到符号"，包名看着没错 | 该类在 `org.springframework.context.event` 包，import 写成了 `org.springframework.context`；javac 中文报错+GBK 混排一度掩盖真实符号 | 修正两处 import 为 `context.event`；后续排查编译错误先用 classpath jar 反查类的实际包路径 | 已修复 |
+| 2 | `PlainMapper` 编译找不到 `DBRouter` | 阶段 1 已把 DBRouter 移到 `annotation/` 包，新测试沿用了旧根包 import | 修正 import | 已修复 |
+| 3 | "键取不到"的单测设计漏洞：单字符串参数场景永远不会失败 | 新语义下单 String 参数直取（与 MyBatis 单参数一致） | 用例改为多 `@Param` 参数场景验证报错路径 | 已修复 |
+
+### 行为变更（已知问题清单对应项，基线断言同步翻转）
+
+- **#3** 多参数取键不再得到字面量 `"null"` → 精确匹配，失败抛异常
+- **#4** 无字段 Bean 不再 NPE 吞掉返回 null → 沿父类链安全查找，找不到抛异常
+- **#5** 分表键取不到不再静默保留逻辑表名 → 改写器立即抛 `ShardingException`
+- **#6** `logicTableName` 字段陷阱消除 → `rules` 的 map key 即逻辑表名
+- **#9** `ParamUtils` 不再兜底返回 `param1` → 仅精确匹配，取不到返回 null
+- 新定义：`range_day` 语义 = `LocalDate.toEpochDay() % tableCount`（usage.md 未细化处的实现决策）
+- `@DBRouter` 增加 `key` 属性；标注位置启动校验落地（接口放行、普通类报错）
 
 ---
 
