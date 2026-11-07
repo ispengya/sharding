@@ -7,24 +7,24 @@ import com.ispengya.sharding.config.ShardingProperties;
 import javax.sql.DataSource;
 
 /**
- * 物理数据源构建：配置对象 → Druid 连接池。
- * 从 ShardingAutoConfiguration 拆出，装配逻辑之外只关心这一件事。
+ * 物理节点连接池构建：NodeConfig 配置对象 → Druid 连接池。
+ * 主库与每个从库节点各自独立建池，参数互不影响。
  */
 public final class DataSourceFactory {
 
     private DataSourceFactory() {
     }
 
-    public static DataSource create(String dsName, ShardingProperties.DataSourceConfig dataSourceConfig) {
-        DbConfigValidator.validate(dsName, dataSourceConfig);
+    public static DataSource create(String nodeName, ShardingProperties.NodeConfig nodeConfig) {
+        DbConfigValidator.validate(nodeName, nodeConfig);
 
         DruidDataSource dataSource = new DruidDataSource();
-        dataSource.setDriverClassName(dataSourceConfig.getDriverClassName());
-        dataSource.setUrl(dataSourceConfig.getUrl());
-        dataSource.setUsername(dataSourceConfig.getUsername());
-        dataSource.setPassword(dataSourceConfig.getPassword());
+        dataSource.setDriverClassName(nodeConfig.getDriverClassName());
+        dataSource.setUrl(nodeConfig.getUrl());
+        dataSource.setUsername(nodeConfig.getUsername());
+        dataSource.setPassword(nodeConfig.getPassword());
 
-        ShardingProperties.ConnectionConfig connection = dataSourceConfig.getConnection();
+        ShardingProperties.ConnectionConfig connection = nodeConfig.getConnection();
 
         dataSource.setInitialSize(connection.getInitialSize());
         dataSource.setMinIdle(connection.getMinIdle());

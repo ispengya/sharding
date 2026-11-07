@@ -1,90 +1,150 @@
 package com.ispengya.sharding.rule;
 
-import com.ispengya.sharding.algorithm.DBShardingStrategy;
-import com.ispengya.sharding.algorithm.HashCodeDBShardingStrategy;
-import com.ispengya.sharding.algorithm.HashCodeTableShardingStrategy;
-import com.ispengya.sharding.algorithm.TableShardingStrategy;
-import com.ispengya.sharding.exception.ShardingException;
+import com.ispengya.sharding.algorithm.ShardingAlgorithm;
 import com.ispengya.sharding.config.ShardingProperties;
+import com.ispengya.sharding.exception.ShardingException;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.CollectionUtils;
 
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * 分片规则注册表：由 ShardingProperties 构建分库/分表规则与策略映射，供路由切面与 SQL 改写器查询。
+ * 分片规则注册表：由 ShardingProperties 与算法 Bean 构建按逻辑表组织的分库/分表规则，
+ * 并在构造时完成全部启动期校验（数据源引用、算法存在性、规则形状）。
+ * rules 未配置时允许为空——所有逻辑表走 primary 直通。
  */
 @Slf4j
 @Data
 public class ShardingRuleRegistry {
 
-    private Set<String> logicTableNames = new HashSet<>();
-    private DBShardingRule dbShardingRule = new DBShardingRule();
-    private Map<String, TableShardingRule> shardingRules = new HashMap<>();
-    private Map<String, TableShardingStrategy> tableStrategyMap= new HashMap<>();
-    private Map<String, DBShardingStrategy> dbStrategyMap = new HashMap<>();
+    private final Map<String, DBShardingRule> dbRules = new LinkedHashMap<>();
+    private final Map<String, TableShardingRule> tableRules = new LinkedHashMap<>();
+    private final Map<String, ShardingAlgorithm> algorithms;
+    private Set<String> logicTableNames = new LinkedHashSet<>();
 
-    public ShardingRuleRegistry(ShardingProperties shardingProperties) {
-        try {
-            initTableShardingRouteRules(shardingProperties);
-            log.info("Table ShardingRule init : {}", shardingRules);
-
-            initDBShardingRouteRules(shardingProperties);
-            log.info("DB ShardingRule init : {}", dbShardingRule);
-        } catch (Exception e) {
-            throw new ShardingException(e.getMessage());
-        }
+    public ShardingRuleRegistry(ShardingProperties properties, Map<String, ShardingAlgorithm> algorithms) {
+        this.algorithms = algorithms == null ? new LinkedHashMap<String, ShardingAlgorithm>() : algorithms;
+        validateDatasources(properties);
+        buildRules(properties);
+        log.info("Sharding rules init: dbRules={}, tableRules={}", dbRules, tableRules);
     }
 
-    private void initDBShardingRouteRules(ShardingProperties shardingProperties) throws Exception{
-        ShardingProperties.DBShardingConfig dbShardingConfig = shardingProperties.getDbSharding();
-        if (dbShardingConfig == null) {
-            throw new ShardingException("db Sharding config is null");
+    private void validateDatasources(ShardingProperties properties) {
+        if (CollectionUtils.isEmpty(properties.getDataSources())) {
+            throw new ShardingException("sharding.dataSources 未配置任何数据源");
         }
-        dbShardingRule.setDbCount(dbShardingConfig.getDbCount());
-        dbShardingRule.setShardingKey(dbShardingConfig.getShardingKey());
-        dbShardingRule.setStrategyKey(dbShardingConfig.getStrategyKey());
-
-        loadSystemDBShardingStrategy();
-    }
-
-    private void initTableShardingRouteRules(ShardingProperties shardingProperties) throws Exception {
-        Map<String, ShardingProperties.TableShardingConfig> shardingConfigMap = shardingProperties.getTableSharding();
-        if (CollectionUtils.isEmpty(shardingConfigMap)) {
-            throw new ShardingException("table sharding config is empty");
+        String primary = properties.getPrimary();
+        if (isBlank(primary)) {
+            throw new ShardingException("sharding.primary 未配置");
         }
-
-        for (Map.Entry<String, ShardingProperties.TableShardingConfig> entry : shardingConfigMap.entrySet()) {
-            TableShardingRule tableShardingRule = new TableShardingRule();
-            tableShardingRule.setShardingKey(entry.getValue().getShardingKey());
-            tableShardingRule.setTableCount(entry.getValue().getTableCount());
-            tableShardingRule.setShardingKey(entry.getValue().getShardingKey());
-            tableShardingRule.setLogicTableName(entry.getValue().getLogicTableName());
-            tableShardingRule.setStrategyKey(entry.getValue().getStrategyKey());
-            logicTableNames.add(entry.getValue().getLogicTableName());
-
-            shardingRules.put(entry.getValue().getLogicTableName(), tableShardingRule);
-
-            if (StringUtils.isNotBlank(entry.getValue().getStrategyClassName())) {
-                Class<?> clazz = Class.forName(entry.getValue().getStrategyClassName());
-                TableShardingStrategy strategy = (TableShardingStrategy) clazz.getDeclaredConstructor().newInstance();
-                tableStrategyMap.put(entry.getValue().getStrategyKey(), strategy);
+        if (!properties.getDataSources().containsKey(primary)) {
+            throw new ShardingException("sharding.primary 指向未定义的数据源: " + primary);
+        }
+        for (Map.Entry<String, ShardingProperties.DataSourceGroup> entry : properties.getDataSources().entrySet()) {
+            if (entry.getValue().getMaster() == null) {
+                throw new ShardingException("数据源 " + entry.getKey() + " 未配置 master");
             }
-
-            loadSystemTableShardingStrategy();
         }
     }
 
-    private void loadSystemTableShardingStrategy() {
-        tableStrategyMap.put("hash", new HashCodeTableShardingStrategy());
+    private void buildRules(ShardingProperties properties) {
+        Map<String, ShardingProperties.ShardingRuleConfig> rules = properties.getRules();
+        if (CollectionUtils.isEmpty(rules)) {
+            return;
+        }
+        for (Map.Entry<String, ShardingProperties.ShardingRuleConfig> entry : rules.entrySet()) {
+            String logicTable = entry.getKey();
+            ShardingProperties.ShardingRuleConfig config = entry.getValue();
+            if (config == null || (config.getDb() == null && config.getTable() == null)) {
+                throw new ShardingException("分片规则 " + logicTable + " 必须至少配置 db 或 table 段");
+            }
+            if (config.getDb() != null) {
+                dbRules.put(logicTable, buildDbRule(logicTable, config.getDb(), properties));
+            }
+            if (config.getTable() != null) {
+                TableShardingRule rule = buildTableRule(logicTable, config.getTable());
+                tableRules.put(logicTable, rule);
+                logicTableNames.add(logicTable);
+            }
+        }
     }
 
-    private void loadSystemDBShardingStrategy() {
-        dbStrategyMap.put("hash", new HashCodeDBShardingStrategy());
+    private DBShardingRule buildDbRule(String logicTable, ShardingProperties.DbRuleConfig config,
+                                       ShardingProperties properties) {
+        if (CollectionUtils.isEmpty(config.getDatabases())) {
+            throw new ShardingException("分片规则 " + logicTable + " 的 db.databases 不能为空");
+        }
+        for (String ds : config.getDatabases()) {
+            if (!properties.getDataSources().containsKey(ds)) {
+                throw new ShardingException("分片规则 " + logicTable + " 引用了未定义的数据源: " + ds);
+            }
+        }
+        if (isBlank(config.getShardingKey())) {
+            throw new ShardingException("分片规则 " + logicTable + " 的 db.shardingKey 不能为空");
+        }
+        checkAlgorithm(logicTable, config.getAlgorithm());
+
+        DBShardingRule rule = new DBShardingRule();
+        rule.setDatabases(new ArrayList<>(config.getDatabases()));
+        rule.setShardingKey(config.getShardingKey());
+        rule.setAlgorithm(config.getAlgorithm());
+        rule.setAlgorithmParams(config.getAlgorithmParams());
+        return rule;
+    }
+
+    private TableShardingRule buildTableRule(String logicTable, ShardingProperties.TableRuleConfig config) {
+        if (config.getTableCount() <= 0) {
+            throw new ShardingException("分片规则 " + logicTable + " 的 table.tableCount 必须大于 0");
+        }
+        if (isBlank(config.getShardingKey())) {
+            throw new ShardingException("分片规则 " + logicTable + " 的 table.shardingKey 不能为空");
+        }
+        checkAlgorithm(logicTable, config.getAlgorithm());
+
+        TableShardingRule rule = new TableShardingRule();
+        rule.setLogicTableName(logicTable);
+        rule.setTableCount(config.getTableCount());
+        rule.setShardingKey(config.getShardingKey());
+        rule.setAlgorithm(config.getAlgorithm());
+        rule.setAlgorithmParams(config.getAlgorithmParams());
+        return rule;
+    }
+
+    private void checkAlgorithm(String logicTable, String algorithm) {
+        if (isBlank(algorithm)) {
+            throw new ShardingException("分片规则 " + logicTable + " 的 algorithm 不能为空");
+        }
+        if (!algorithms.containsKey(algorithm)) {
+            throw new ShardingException("分片规则 " + logicTable + " 引用了不存在的算法: " + algorithm);
+        }
+    }
+
+    /** 全部已配置的分库键（按配置顺序、去重），供路由切面依次尝试提取 */
+    public List<String> getDbShardingKeys() {
+        Set<String> keys = new LinkedHashSet<>();
+        for (DBShardingRule rule : dbRules.values()) {
+            keys.add(rule.getShardingKey());
+        }
+        return new ArrayList<>(keys);
+    }
+
+    /** 按分库键查找规则（同键多规则时取先配置的） */
+    public DBShardingRule findDbRuleByKey(String shardingKey) {
+        for (DBShardingRule rule : dbRules.values()) {
+            if (rule.getShardingKey().equals(shardingKey)) {
+                return rule;
+            }
+        }
+        return null;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }

@@ -1,12 +1,10 @@
 package com.ispengya.sharding.integration;
 
+import com.ispengya.sharding.algorithm.HashShardingAlgorithm;
+import com.ispengya.sharding.algorithm.ShardingContext;
 import com.ispengya.sharding.integration.mapper.OrderMapper;
 import com.ispengya.sharding.integration.model.TOrder;
 import com.ispengya.sharding.integration.service.TxService;
-import com.ispengya.sharding.rule.DBShardingRule;
-import com.ispengya.sharding.rule.TableShardingRule;
-import com.ispengya.sharding.algorithm.HashCodeDBShardingStrategy;
-import com.ispengya.sharding.algorithm.HashCodeTableShardingStrategy;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -44,8 +42,7 @@ public class ShardingTxIntegrationTest {
     @Autowired
     private OrderMapper orderMapper;
 
-    private final HashCodeDBShardingStrategy dbStrategy = new HashCodeDBShardingStrategy();
-    private final HashCodeTableShardingStrategy tableStrategy = new HashCodeTableShardingStrategy();
+    private final HashShardingAlgorithm algorithm = new HashShardingAlgorithm();
 
     @Before
     public void setUpSchema() throws Exception {
@@ -102,11 +99,10 @@ public class ShardingTxIntegrationTest {
     // ---------- helpers ----------
 
     private String findValueForDb(String targetDs) {
-        DBShardingRule rule = new DBShardingRule();
-        rule.setDbCount(2);
+        java.util.List<String> databases = java.util.Arrays.asList("ds_0", "ds_1");
         for (int i = 0; i < 200; i++) {
             String candidate = "user-" + i;
-            if (targetDs.equals(dbStrategy.shard(rule, candidate))) {
+            if (targetDs.equals(algorithm.calculate(ShardingContext.forDb(candidate, databases, null)))) {
                 return candidate;
             }
         }
@@ -114,12 +110,9 @@ public class ShardingTxIntegrationTest {
     }
 
     private String findValueForTable(String targetTable) {
-        TableShardingRule rule = new TableShardingRule();
-        rule.setLogicTableName("t_order");
-        rule.setTableCount(2);
         for (int i = 0; i < 200; i++) {
             String candidate = "order-" + i;
-            if (targetTable.equals(tableStrategy.shard(rule, candidate))) {
+            if (targetTable.equals(algorithm.calculate(ShardingContext.forTable(candidate, "t_order", 2, null)))) {
                 return candidate;
             }
         }

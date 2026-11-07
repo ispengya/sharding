@@ -2,56 +2,42 @@ package com.ispengya.sharding.sql;
 
 import com.alibaba.druid.sql.ast.expr.SQLIdentifierExpr;
 import com.alibaba.druid.sql.ast.statement.SQLExprTableSource;
-import com.ispengya.sharding.algorithm.TableShardingStrategy;
+import com.ispengya.sharding.algorithm.ShardingAlgorithm;
+import com.ispengya.sharding.algorithm.ShardingContext;
+import com.ispengya.sharding.exception.ShardingException;
 import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import com.ispengya.sharding.rule.TableShardingRule;
 import com.ispengya.sharding.util.ParamUtils;
 
-import java.lang.reflect.Field;
-import java.util.Map;
-import java.util.Set;
-
 /**
- * SQL 表名改写器：命中分表规则时按分表键计算物理表名并替换，未命中或取不到键时保持原样。
+ * SQL 表名改写器：命中分表规则时按分表键计算物理表名并替换；
+ * 未配置规则的逻辑表原样直通；配置了规则但取不到分表键时直接报错（不静默跳过）。
  */
 public class ShardingRewriter {
 
-    private final Set<String> logicTableNames;
-    private final Map<String, TableShardingRule> shardingRules;
-    private final Map<String, TableShardingStrategy> strategyMap;
+    private final ShardingRuleRegistry registry;
 
     public ShardingRewriter(ShardingRuleRegistry shardingRuleRegistry) {
-        this.logicTableNames = shardingRuleRegistry.getLogicTableNames();
-        this.shardingRules = shardingRuleRegistry.getShardingRules();
-        this.strategyMap = shardingRuleRegistry.getTableStrategyMap();
+        this.registry = shardingRuleRegistry;
     }
 
     public boolean rewrite(SQLExprTableSource x, Object parameter) {
         String logicTable = x.getExpr().toString();
-        if (!logicTableNames.contains(logicTable)) return true;
+        TableShardingRule rule = registry.getTableRules().get(logicTable);
+        if (rule == null) {
+            // 无规则直通：非分片表保持原名
+            return true;
+        }
 
-        TableShardingRule rule = shardingRules.get(logicTable);
         Object value = ParamUtils.getParamValue(parameter, rule.getShardingKey());
-        if (value == null) return true;
+        if (value == null) {
+            throw new ShardingException("分表键 [" + rule.getShardingKey() + "] 取不到值，无法改写逻辑表 " + logicTable);
+        }
 
-        String actualTable = strategyMap.get(rule.getStrategyKey()).shard(rule, value);
-
+        ShardingAlgorithm algorithm = registry.getAlgorithms().get(rule.getAlgorithm());
+        String actualTable = algorithm.calculate(
+                ShardingContext.forTable(value, rule.getLogicTableName(), rule.getTableCount(), rule.getAlgorithmParams()));
         x.setExpr(new SQLIdentifierExpr(actualTable));
         return true;
     }
-
-    private Object extractValue(String field, Object param) {
-        if (param instanceof Map) {
-            return ((Map<?, ?>) param).get(field);
-        } else {
-            try {
-                Field f = param.getClass().getDeclaredField(field);
-                f.setAccessible(true);
-                return f.get(param);
-            } catch (Exception e) {
-                return null;
-            }
-        }
-    }
-
 }

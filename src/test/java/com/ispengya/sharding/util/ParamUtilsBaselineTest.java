@@ -26,11 +26,11 @@ public class ParamUtilsBaselineTest {
     }
 
     @Test
-    public void mapParam1FallbackWhenKeyAbsent() {
-        // 基线：map 中没有目标 key 时会兜底返回 param1，即使它不是所求语义
+    public void mapNoParam1FallbackWhenKeyAbsent() {
+        // 阶段 2 修复（已知问题 #9）：不再兜底返回 param1，仅精确匹配，取不到返回 null
         Map<String, Object> param = new HashMap<String, Object>();
         param.put("param1", "first");
-        assertEquals("first", ParamUtils.getParamValue(param, "userId"));
+        assertNull(ParamUtils.getParamValue(param, "userId"));
     }
 
     @Test

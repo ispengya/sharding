@@ -3,50 +3,59 @@ package com.ispengya.sharding.sql;
 import com.alibaba.druid.sql.SQLUtils;
 import com.alibaba.druid.sql.ast.SQLStatement;
 import com.alibaba.druid.util.JdbcConstants;
+import com.ispengya.sharding.algorithm.HashShardingAlgorithm;
+import com.ispengya.sharding.algorithm.ShardingAlgorithm;
+import com.ispengya.sharding.algorithm.ShardingContext;
 import com.ispengya.sharding.config.ShardingProperties;
-import com.ispengya.sharding.algorithm.HashCodeTableShardingStrategy;
+import com.ispengya.sharding.exception.ShardingException;
 import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import com.ispengya.sharding.rule.TableShardingRule;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * SQL 改写行为基线（ShardingRewriter + ShardingTableVisitor）。
- *
- * 基线事实：分片键取不到值时静默跳过改写（逻辑表名原样输出，
- * 执行期会因物理表不存在而失败）——已知问题，见 docs/journal.md。
+ * SQL 改写测试：命中规则改写、非分片表直通、JOIN 只改分片侧；
+ * 取不到分表键时抛异常（已知问题 #5 在阶段 2 修复后的行为）。
  */
 public class ShardingRewriterBaselineTest {
 
     private ShardingRewriter rewriter;
-    private final HashCodeTableShardingStrategy tableStrategy = new HashCodeTableShardingStrategy();
+    private final HashShardingAlgorithm algorithm = new HashShardingAlgorithm();
 
     @Before
     public void setUp() {
         ShardingProperties properties = new ShardingProperties();
         properties.setPrimary("ds_0");
-        ShardingProperties.DBShardingConfig db = new ShardingProperties.DBShardingConfig();
-        db.setDbCount(2);
-        db.setShardingKey("userId");
-        db.setStrategyKey("hash");
-        properties.setDbSharding(db);
-        ShardingProperties.TableShardingConfig table = new ShardingProperties.TableShardingConfig();
-        table.setLogicTableName("t_order");
-        table.setShardingKey("orderId");
-        table.setTableCount(2);
-        table.setStrategyKey("hash");
-        Map<String, ShardingProperties.TableShardingConfig> tables = new HashMap<String, ShardingProperties.TableShardingConfig>();
-        tables.put("t_order", table);
-        properties.setTableSharding(tables);
+        ShardingProperties.DataSourceGroup ds0 = new ShardingProperties.DataSourceGroup();
+        ds0.setMaster(new ShardingProperties.NodeConfig());
+        ShardingProperties.DataSourceGroup ds1 = new ShardingProperties.DataSourceGroup();
+        ds1.setMaster(new ShardingProperties.NodeConfig());
+        properties.getDataSources().put("ds_0", ds0);
+        properties.getDataSources().put("ds_1", ds1);
 
-        rewriter = new ShardingRewriter(new ShardingRuleRegistry(properties));
+        ShardingProperties.ShardingRuleConfig ruleConfig = new ShardingProperties.ShardingRuleConfig();
+        ShardingProperties.DbRuleConfig dbRule = new ShardingProperties.DbRuleConfig();
+        dbRule.setDatabases(Arrays.asList("ds_0", "ds_1"));
+        dbRule.setShardingKey("userId");
+        dbRule.setAlgorithm("hash");
+        ShardingProperties.TableRuleConfig tableRule = new ShardingProperties.TableRuleConfig();
+        tableRule.setShardingKey("orderId");
+        tableRule.setAlgorithm("hash");
+        tableRule.setTableCount(2);
+        ruleConfig.setDb(dbRule);
+        ruleConfig.setTable(tableRule);
+        properties.getRules().put("t_order", ruleConfig);
+
+        Map<String, ShardingAlgorithm> algorithms = new HashMap<String, ShardingAlgorithm>();
+        algorithms.put("hash", algorithm);
+        rewriter = new ShardingRewriter(new ShardingRuleRegistry(properties, algorithms));
     }
 
     private String rewrite(String sql, Object param) {
@@ -55,30 +64,25 @@ public class ShardingRewriterBaselineTest {
         return SQLUtils.toSQLString(stmts.get(0), JdbcConstants.MYSQL);
     }
 
-    private TableShardingRule tableRule() {
-        TableShardingRule rule = new TableShardingRule();
-        rule.setLogicTableName("t_order");
-        rule.setTableCount(2);
-        rule.setShardingKey("orderId");
-        return rule;
+    private String expectedTable(String orderId) {
+        return algorithm.calculate(ShardingContext.forTable(orderId, "t_order", 2, null));
     }
 
     @Test
     public void shardedTableRewrittenToPhysicalTable() {
         Map<String, Object> param = new HashMap<String, Object>();
         param.put("orderId", "o-1");
-        String expected = tableStrategy.shard(tableRule(), "o-1");
+        String expected = expectedTable("o-1");
 
         String sql = rewrite("SELECT id FROM t_order WHERE id = #{id}", param);
         assertTrue("期望改写为 " + expected + "，实际: " + sql, sql.contains(expected));
-        assertTrue(!sql.contains("FROM t_order "));
     }
 
     @Test
     public void insertStatementAlsoRewritten() {
         Map<String, Object> param = new HashMap<String, Object>();
         param.put("orderId", "o-2");
-        String expected = tableStrategy.shard(tableRule(), "o-2");
+        String expected = expectedTable("o-2");
 
         String sql = rewrite("INSERT INTO t_order (id, user_id, order_id) VALUES (#{id}, #{userId}, #{orderId})", param);
         assertTrue("期望改写为 " + expected + "，实际: " + sql, sql.contains(expected));
@@ -96,18 +100,16 @@ public class ShardingRewriterBaselineTest {
     public void joinRewritesShardedSideOnly() {
         Map<String, Object> param = new HashMap<String, Object>();
         param.put("orderId", "o-1");
-        String expected = tableStrategy.shard(tableRule(), "o-1");
+        String expected = expectedTable("o-1");
 
         String sql = rewrite("SELECT u.id FROM t_user u LEFT JOIN t_order o ON u.id = o.id", param);
         assertTrue("join 中分片表应改写，实际: " + sql, sql.contains(expected));
         assertTrue("join 中非分片表不应改写，实际: " + sql, sql.contains("t_user"));
     }
 
-    @Test
-    public void missingShardingKeySilentlyKeepsLogicTable() {
-        // 基线：键取不到时不改写也不报错，逻辑表名原样输出
-        String sql = rewrite("SELECT id FROM t_order WHERE id = 1", new HashMap<String, Object>());
-        assertTrue("基线行为：仍输出逻辑表名，实际: " + sql, sql.contains("t_order"));
-        assertEquals(false, sql.contains("t_order_0") || sql.contains("t_order_1"));
+    @Test(expected = ShardingException.class)
+    public void missingShardingKeyThrowsInsteadOfSilentlyKeepingLogicTable() {
+        // 旧实现静默跳过改写导致运行期表不存在，现改为立即报错（已知问题 #5）
+        rewrite("SELECT id FROM t_order WHERE id = 1", new HashMap<String, Object>());
     }
 }

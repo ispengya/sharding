@@ -1,28 +1,29 @@
-# 集成测试默认打真实 MySQL（docker-compose 三节点，见同目录 docker-compose.yml）
+# 集成测试配置（新定稿形状）：真实 MySQL 三节点，见 docker-compose.yml
 sharding:
   primary: ds_0
 
   dataSources:
     ds_0:
-      driverClassName: com.mysql.cj.jdbc.Driver
-      url: jdbc:mysql://localhost:33061/db_1?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
-      username: root
-      password: root
+      master:
+        driverClassName: com.mysql.cj.jdbc.Driver
+        url: jdbc:mysql://localhost:33061/db_1?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
+        username: root
+        password: root
     ds_1:
-      driverClassName: com.mysql.cj.jdbc.Driver
-      url: jdbc:mysql://localhost:33062/db_2?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
-      username: root
-      password: root
+      master:
+        driverClassName: com.mysql.cj.jdbc.Driver
+        url: jdbc:mysql://localhost:33062/db_2?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
+        username: root
+        password: root
 
-  # 阶段 0/1 基线使用当前（旧）配置键，阶段 2 重构为 rules 形状
-  dbSharding:
-    shardingKey: userId
-    dbCount: 2
-    strategyKey: hash
-
-  tableSharding:
+  # rules 不配置的逻辑表不分片、落 primary 直通；此处仅 t_order 参与分片
+  rules:
     t_order:
-      logicTableName: t_order
-      shardingKey: orderId
-      tableCount: 2
-      strategyKey: hash
+      db:
+        databases: [ds_0, ds_1]
+        shardingKey: userId
+        algorithm: hash
+      table:
+        shardingKey: orderId
+        algorithm: hash
+        tableCount: 2
