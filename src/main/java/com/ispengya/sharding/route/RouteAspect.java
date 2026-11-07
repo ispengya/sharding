@@ -1,6 +1,7 @@
 package com.ispengya.sharding.route;
 
 import com.ispengya.sharding.annotation.DBRouter;
+import com.ispengya.sharding.annotation.Route;
 import com.ispengya.sharding.algorithm.ShardingAlgorithm;
 import com.ispengya.sharding.algorithm.ShardingContext;
 import com.ispengya.sharding.exception.ShardingException;
@@ -14,6 +15,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
@@ -24,8 +26,9 @@ import java.util.Map;
 
 /**
  * 分库路由切面：拦截标注 @DBRouter 的方法（方法级优先于类级），
- * 按显式 key 或规则中的分库键从参数提取键值，计算目标数据源写入 RouteContextHolder，方法返回后清理。
- * 提取失败一律抛 ShardingException，不做静默兜底。
+ * 按显式 key 或规则中的分库键从参数提取键值，结合读写角色（route，方法级 > 类级）
+ * 写入 RouteContextHolder，方法返回后清理。
+ * 校验：route = SLAVE 在活动事务内 → 抛 ShardingException；提取失败一律抛异常，不静默兜底。
  */
 @Slf4j
 @Aspect
@@ -43,21 +46,41 @@ public class RouteAspect {
         Method method = ((MethodSignature) jp.getSignature()).getMethod();
         Class<?> targetClass = jp.getTarget() != null ? jp.getTarget().getClass() : method.getDeclaringClass();
         String dbRouteKey = resolveDbRoute(method, jp.getArgs(), targetClass);
+        Route route = resolveRouteRole(method, targetClass);
+        if (route == Route.SLAVE && TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new ShardingException("route = SLAVE 不能在活动事务内使用（从库延迟会破坏事务一致性）：方法 "
+                    + signature(method));
+        }
         RouteContextHolder.setDbHolder(dbRouteKey);
+        RouteContextHolder.setRoute(route);
         try {
             return jp.proceed();
         } finally {
             RouteContextHolder.clearDbHolder();
+            RouteContextHolder.clearRoute();
         }
+    }
+
+    /**
+     * 解析读写角色（包级可见，便于单测）：方法级 @DBRouter.route > 类级，均未命中默认 MASTER。
+     * 方法上存在注解时即以方法为准（含默认值，便于方法级覆盖类级 SLAVE）。
+     */
+    Route resolveRouteRole(Method method, Class<?> targetClass) {
+        DBRouter annotation = method.getAnnotation(DBRouter.class);
+        if (annotation == null && targetClass != null) {
+            annotation = targetClass.getAnnotation(DBRouter.class);
+        }
+        return annotation != null ? annotation.route() : Route.MASTER;
     }
 
     /**
      * 计算分库路由目标（包级可见，便于单测）。
      * 优先级：方法级 @DBRouter(key) > 类级 > 按规则分库键依次尝试提取。
+     * 未配置任何分库规则时返回 null（db 直通 primary，仅按 route 做组内角色路由）。
      */
     String resolveDbRoute(Method method, Object[] args, Class<?> targetClass) {
         if (registry.getDbRules().isEmpty()) {
-            throw new ShardingException("方法 " + signature(method) + " 标注了 @DBRouter，但未配置任何分库规则");
+            return null;
         }
 
         DBRouter annotation = method.getAnnotation(DBRouter.class);

@@ -102,18 +102,19 @@ public interface OrderMapper {
 
 ## 3. 读写分离：`route` 属性
 
-**写永远走主库。读默认走主库，`route = SLAVE` 显式走从库。**
+**写永远走主库。读默认走主库，`route = Route.SLAVE` 显式走从库。**
+（`Route` 枚举位于 `com.ispengya.sharding.annotation.Route`，可静态导入 `SLAVE`/`MASTER` 简写。）
 
 ```java
 @DBRouter                                  // 默认 MASTER：读写都走主库
 @Select("SELECT * FROM user WHERE id = #{id}")
 User getById(@Param("id") Long id);
 
-@DBRouter(route = SLAVE)                   // 显式从库：多从库间按 loadBalance 均衡
+@DBRouter(route = Route.SLAVE)             // 显式从库：多从库间按 loadBalance 均衡
 @Select("SELECT count(*) FROM order WHERE user_id = #{userId}")
 long countByUser(@Param("userId") Long userId);
 
-@DBRouter(route = MASTER)                  // 显式主库（用于覆盖类级 SLAVE）
+@DBRouter(route = Route.MASTER)            // 显式主库（用于覆盖类级 SLAVE）
 @Select("SELECT * FROM order WHERE id = #{id}")
 Order getAfterWrite(@Param("id") Long id);
 ```
@@ -231,7 +232,7 @@ dataSources:
 ```
 
 ```java
-@DBRouter(route = SLAVE)   // 想摊给从库的读加上这一个属性，其余不写
+@DBRouter(route = Route.SLAVE)   // 想摊给从库的读加上这一个属性，其余不写
 ```
 
 **③ 分库分表，无主从**
@@ -274,6 +275,7 @@ public void placeOrder(User u, Order o, Stock s) { ... }
 | `algorithm` 引用的算法不存在 | 启动 |
 | 算法类未标注 `@Algorithm` / 名称为空 / 重名 | 启动 |
 | 算法 `scope` 与规则段错配（如仅分库算法配到 table 段） | 启动 |
+| `loadBalance` 引用的策略不存在 / 未标注 `@LoadBalance` / 重名 | 启动 |
 | 分库键取不到值（参数里找不到） | 调用 |
 | `route = SLAVE` 在活动事务内使用 | 调用 |
 | 事务写入多个数据源但未标注 `@TxMode` | 调用（事务整体回滚） |

@@ -143,13 +143,29 @@
 
 ## 阶段 3：读写分离（一写多读）
 
-**日期：** 未开始
+**日期：** 2026-11-07（当日完成）
+**产出：** 84 用例全绿（阶段 0/1/2 回归 + 新增 25：单测负载均衡 8、resolver 6、切面角色/事务 6、收集器 3，集成读写分离 5）
+
+### 实现决策
+
+- **路由链两层收敛于 `RouteResolver`（实例化）**：输入（dbHolder, role）→ 物理节点 key `{组}#master` / `{组}#slave#{下标}`；`targetDataSources` 直接以物理 key 注册，单层 `AbstractRoutingDataSource` 完成选择，不再嵌套路由数据源
+- **角色上下文**：`RouteContextHolder` 新增 `routeHolder`（`Route` 枚举 `MASTER/SLAVE`，null 按 MASTER）；切面写入、finally 清理，与 dbHolder 对称
+- **`@DBRouter.route`**：默认 MASTER，方法级 > 类级；方法上存在注解即以方法为准（裸注解可覆盖类级 SLAVE）
+- **负载均衡 SPI**：接口 `LoadBalancer.select(group, slaveCount)`（均衡状态按组隔离，实现须线程安全）；注册注解 `@LoadBalance`（元注解 `@Component`），收集器 `LoadBalances.collect` 与 `ShardingAlgorithms` 同套路；自动装配 `@ComponentScan` 增扫 `loadbalance/` 包
+- **事务校验时机**：切面入口（`LOWEST_PRECEDENCE - 1`，位于事务拦截器外层）`isActualTransactionActive()` → 活动事务内 `route = SLAVE` 抛 `ShardingException`
+- **无 slaves 降级**：`RouteResolver` 角色层判断，`SLAVE` 且组内 0 从库 → master key（不报错）
+- **启动校验**：`RouteResolver` 构造期校验每组 `loadBalance` 引用存在
+
+### 行为变更
+
+- **无分库规则时 `@DBRouter` 不再报错**（原：抛"未配置任何分库规则"）→ 返回 null，db 直通 primary，仅按 route 做组内角色路由。支撑 usage.md 场景②"只配 slaves 不配 rules"；基线用例 `noDbRulesAtAllThrows` 翻转为 `noDbRulesReturnsNullForPrimaryStraightThrough`
 
 ### 问题与修复
 
 | # | 问题 | 原因 | 修复方式 | 状态 |
 |---|---|---|---|---|
-| | | | | |
+| 1 | 场景①"只配 slaves 不配 rules"无法在共享 Spring 上下文验证 | `application.yml` 全局带 rules，无法按测试清空 map 绑定 | `NoRulesReadWriteIntegrationTest` 手工装配 properties → 连接池 → RouteResolver → 路由数据源，直连真实 MySQL 验证 master 写 / slave 读；journal 记录该取舍 | 已解决 |
+| 2 | 从库读数据正确性受异步复制延迟影响，固定断言会偶发失败 | 主从复制异步 | 轮询从库直连 JDBC 直到行可见（10s 超时），再走切面读断言 | 已解决 |
 
 ---
 

@@ -9,7 +9,13 @@ sharding:
         url: jdbc:mysql://localhost:33061/db_1?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
         username: root
         password: root
-    ds_1:
+      slaves:                          # 阶段 3：ds_0 开读写分离（复制自 master-1，server_id=3）
+        - driverClassName: com.mysql.cj.jdbc.Driver
+          url: jdbc:mysql://localhost:33063/db_1?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
+          username: root
+          password: root
+      loadBalance: round_robin
+    ds_1:                             # 不配 slaves → SLAVE 降级按 master 处理
       master:
         driverClassName: com.mysql.cj.jdbc.Driver
         url: jdbc:mysql://localhost:33062/db_2?serverTimezone=UTC&useSSL=false&characterEncoding=utf8

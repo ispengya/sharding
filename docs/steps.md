@@ -107,16 +107,18 @@ com.ispengya.sharding
 
 **目标：`slaves` 开关 + `route` 属性 + 负载均衡，分片与主从两层解耦。**
 
-- [ ] `dataSources` 每个物理节点独立创建 Druid 池（master 与各 slave 参数互不影响）
-- [ ] 路由链定型：**分片选数据源 → 组内选角色**（在阶段 2 预留的选取口插入）
-- [ ] 读写判定：写永远 master；读默认 master；`route = SLAVE` 走从库
-- [ ] 负载均衡 SPI（`loadbalance/` 包）+ `round_robin` / `random` 实现，注册方式与 `algorithm/` 同套路
-- [ ] 校验：`route = SLAVE` 在活动事务内 → 抛 `ShardingException`
-- [ ] 校验：该数据源无 slaves 时 `SLAVE` → 按 master 处理（文档已定，不报错）
+- [x] `dataSources` 每个物理节点独立创建 Druid 池（master 与各 slave 参数互不影响，连接池 key `{组}#master` / `{组}#slave#{下标}`）
+- [x] 路由链定型：**分片选数据源 → 组内选角色**（`RouteResolver` 实例化，`ShardingRoutingDataSource` 委托，物理 key 单层路由）
+- [x] 读写判定：写永远 master；读默认 master；`route = SLAVE` 走从库（`@DBRouter.route` + `RouteContextHolder` 角色，方法级 > 类级）
+- [x] 负载均衡 SPI（`loadbalance/` 包 `LoadBalancer` + `@LoadBalance` 注册）+ `round_robin` / `random` 实现，与 `algorithm/` 同套路
+- [x] 校验：`route = SLAVE` 在活动事务内 → 抛 `ShardingException`（切面入口 `isActualTransactionActive`）
+- [x] 校验：该数据源无 slaves 时 `SLAVE` → 按 master 处理（文档已定，不报错）
+- [x] 启动校验：`loadBalance` 引用的策略不存在 → 启动报错（`RouteResolver` 构造期）
+- [x] 语义修订：未配置分库规则时 `@DBRouter` 不再报错——db 直通 primary，仅按 route 做角色路由（支撑 usage.md 场景②，见 journal）
 
 **单测：** 负载均衡分布、route 解析与优先级（方法>类）、事务内 SLAVE 报错、无 slaves 降级
-**集成：** ① 只配 slaves 不配 rules 的读写分流 ② 分片组内主从 ③ 主库写从库读数据正确性
-**出口：** 阶段 0/1/2 回归全绿 + 新用例全绿
+**集成：** ① 只配 slaves 不配 rules 的读写分流（手工装配，取舍见 journal）② 分片组内主从 ③ 主库写从库读数据正确性
+**出口（2026-11-07 达成）：阶段 0/1/2 回归全绿 + 新用例全绿，`mvn test` 84 用例全绿**
 
 ## 阶段 4：包装式多连接（事务基础）
 

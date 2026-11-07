@@ -1,10 +1,13 @@
 package com.ispengya.sharding.route;
 
+import com.ispengya.sharding.annotation.Route;
+
 public class RouteContextHolder {
     private RouteContextHolder() {
     }
 
     private static final ThreadLocal<String> dbHolder = new ThreadLocal<>();
+    private static final ThreadLocal<Route> routeHolder = new ThreadLocal<>();
     private static final ThreadLocal<String> tbHolder = new ThreadLocal<>();
 
     public static void setDbHolder(String dataSource) {
@@ -17,6 +20,21 @@ public class RouteContextHolder {
 
     public static void clearDbHolder() {
         dbHolder.remove();
+    }
+
+    /**
+     * 读写角色；未设置（null）按 MASTER 处理
+     */
+    public static void setRoute(Route route) {
+        routeHolder.set(route);
+    }
+
+    public static Route getRoute() {
+        return routeHolder.get();
+    }
+
+    public static void clearRoute() {
+        routeHolder.remove();
     }
 
     public static void setTbHolder(String dataSource) {

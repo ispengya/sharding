@@ -1,14 +1,18 @@
 package com.ispengya.sharding.route;
 
 import com.ispengya.sharding.annotation.DBRouter;
+import com.ispengya.sharding.annotation.Route;
 import com.ispengya.sharding.algorithm.HashShardingAlgorithm;
 import com.ispengya.sharding.algorithm.ShardingContext;
 import com.ispengya.sharding.config.ShardingProperties;
 import com.ispengya.sharding.exception.ShardingException;
 import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import org.apache.ibatis.annotations.Param;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.reflect.MethodSignature;
 import org.junit.Before;
 import org.junit.Test;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -16,6 +20,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.fail;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * 分库键提取测试（新语义）：
@@ -35,6 +43,19 @@ public class RouteAspectKeyExtractTest {
         }
     }
 
+    @DBRouter(route = Route.SLAVE)
+    public static class ClassSlaveAnnotated {
+        public void load(String userId) {
+        }
+    }
+
+    @DBRouter(route = Route.SLAVE)
+    public static class ClassSlaveWithMethodOverride {
+        @DBRouter
+        public void masterRead(String userId) {
+        }
+    }
+
     public interface Fixture {
         void single(String userId);
 
@@ -46,6 +67,9 @@ public class RouteAspectKeyExtractTest {
 
         @DBRouter(key = "orderId")
         void explicitKey(@Param("orderId") String orderId, @Param("userId") String userId);
+
+        @DBRouter(route = Route.SLAVE)
+        void slaveRead(@Param("userId") String userId);
     }
 
     private RouteAspect aspect;
@@ -123,8 +147,9 @@ public class RouteAspectKeyExtractTest {
                 aspect.resolveDbRoute(method, new Object[]{"u-7"}, ClassAnnotated.class));
     }
 
-    @Test(expected = ShardingException.class)
-    public void noDbRulesAtAllThrows() throws Exception {
+    @Test
+    public void noDbRulesReturnsNullForPrimaryStraightThrough() throws Exception {
+        // 阶段 3 语义：无分库规则不再报错——db 直通 primary，@DBRouter 仅用于 route 角色路由
         ShardingProperties empty = new ShardingProperties();
         empty.setPrimary("ds_0");
         ShardingProperties.DataSourceGroup group = new ShardingProperties.DataSourceGroup();
@@ -133,6 +158,78 @@ public class RouteAspectKeyExtractTest {
         RouteAspect noRuleAspect = new RouteAspect(new ShardingRuleRegistry(empty, registry.getAlgorithms()));
 
         Method method = Fixture.class.getMethod("single", String.class);
-        noRuleAspect.resolveDbRoute(method, new Object[]{"u-1"}, Fixture.class);
+        assertNull(noRuleAspect.resolveDbRoute(method, new Object[]{"u-1"}, Fixture.class));
+    }
+
+    // ---------- 读写角色（route） ----------
+
+    @Test
+    public void routeDefaultsToMasterWhenNoAnnotation() throws Exception {
+        Method method = Fixture.class.getMethod("single", String.class);
+        assertEquals(Route.MASTER, aspect.resolveRouteRole(method, Fixture.class));
+    }
+
+    @Test
+    public void routeMethodLevelWins() throws Exception {
+        Method method = Fixture.class.getMethod("slaveRead", String.class);
+        assertEquals(Route.SLAVE, aspect.resolveRouteRole(method, Fixture.class));
+    }
+
+    @Test
+    public void routeClassLevelAppliesWhenMethodBare() throws Exception {
+        Method method = ClassSlaveAnnotated.class.getMethod("load", String.class);
+        assertEquals(Route.SLAVE, aspect.resolveRouteRole(method, ClassSlaveAnnotated.class));
+    }
+
+    @Test
+    public void routeMethodDefaultOverridesClassSlave() throws Exception {
+        // 方法上存在注解即以方法为准（裸 @DBRouter 默认 MASTER，覆盖类级 SLAVE）
+        Method method = ClassSlaveWithMethodOverride.class.getMethod("masterRead", String.class);
+        assertEquals(Route.MASTER, aspect.resolveRouteRole(method, ClassSlaveWithMethodOverride.class));
+    }
+
+    @Test
+    public void slaveRouteSetsContextDuringProceedAndClearsAfter() throws Throwable {
+        Method method = Fixture.class.getMethod("slaveRead", String.class);
+        ProceedingJoinPoint jp = mockJoinPoint(method, Fixture.class, new Object[]{"u-1"});
+        when(jp.proceed()).thenAnswer(invocation -> {
+            assertEquals(Route.SLAVE, RouteContextHolder.getRoute());
+            // dbHolder 是分片算法算出的数据源名（ds_0/ds_1），不是键值本身
+            org.junit.Assert.assertNotNull(RouteContextHolder.getDbHolder());
+            return "ok";
+        });
+
+        assertEquals("ok", aspect.doRouter(jp));
+        assertNull(RouteContextHolder.getRoute());
+        assertNull(RouteContextHolder.getDbHolder());
+    }
+
+    @Test
+    public void slaveRouteInActiveTransactionThrows() throws Throwable {
+        Method method = Fixture.class.getMethod("slaveRead", String.class);
+        ProceedingJoinPoint jp = mockJoinPoint(method, Fixture.class, new Object[]{"u-1"});
+
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            aspect.doRouter(jp);
+            fail("活动事务内 route = SLAVE 应当抛出 ShardingException");
+        } catch (ShardingException expected) {
+            // 期望的校验错误
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+            RouteContextHolder.clearDbHolder();
+            RouteContextHolder.clearRoute();
+        }
+    }
+
+    private ProceedingJoinPoint mockJoinPoint(Method method, Class<?> targetClass, Object[] args) throws Throwable {
+        ProceedingJoinPoint jp = mock(ProceedingJoinPoint.class);
+        MethodSignature signature = mock(MethodSignature.class);
+        when(jp.getSignature()).thenReturn(signature);
+        when(signature.getMethod()).thenReturn(method);
+        when(jp.getTarget()).thenReturn(targetClass);
+        when(jp.getArgs()).thenReturn(args);
+        when(jp.proceed()).thenReturn("ok");
+        return jp;
     }
 }
