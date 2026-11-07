@@ -4,7 +4,7 @@ import com.ispengya.sharding.algorithm.ShardingAlgorithm;
 import com.ispengya.sharding.algorithm.ShardingAlgorithms;
 import com.ispengya.sharding.datasource.DataSourceFactory;
 import com.ispengya.sharding.datasource.RouteResolver;
-import com.ispengya.sharding.datasource.ShardingRoutingDataSource;
+import com.ispengya.sharding.datasource.ShardingDataSource;
 import com.ispengya.sharding.exception.ShardingException;
 import com.ispengya.sharding.loadbalance.LoadBalancer;
 import com.ispengya.sharding.loadbalance.LoadBalances;
@@ -24,7 +24,6 @@ import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.util.CollectionUtils;
 
@@ -95,7 +94,7 @@ public class ShardingAutoConfiguration {
             throw new ShardingException("sharding dataSources properties is empty");
         }
 
-        Map<Object, Object> dataSourceMap = new HashMap<>();
+        Map<String, DataSource> pools = new HashMap<>();
         for (Map.Entry<String, ShardingProperties.DataSourceGroup> entry : groups.entrySet()) {
             String name = entry.getKey();
             ShardingProperties.DataSourceGroup group = entry.getValue();
@@ -104,21 +103,17 @@ public class ShardingAutoConfiguration {
                 throw new ShardingException("数据源 " + name + " 未配置 master");
             }
             // 每个物理节点独立建池，master 与各 slave 参数互不影响
-            dataSourceMap.put(RouteResolver.masterKey(name), DataSourceFactory.create(name + "-master", master));
+            pools.put(RouteResolver.masterKey(name), DataSourceFactory.create(name + "-master", master));
             if (group.getSlaves() != null) {
                 for (int i = 0; i < group.getSlaves().size(); i++) {
-                    dataSourceMap.put(RouteResolver.slaveKey(name, i),
+                    pools.put(RouteResolver.slaveKey(name, i),
                             DataSourceFactory.create(name + "-slave-" + i, group.getSlaves().get(i)));
                 }
             }
         }
 
-        ShardingRoutingDataSource shardingRoutingDataSource = new ShardingRoutingDataSource(routeResolver);
-        shardingRoutingDataSource.setDefaultTargetDataSource(
-                dataSourceMap.get(RouteResolver.masterKey(shardingProperties.getPrimary())));
-        shardingRoutingDataSource.setTargetDataSources(dataSourceMap);
-        shardingRoutingDataSource.afterPropertiesSet();
-        return new LazyConnectionDataSourceProxy(shardingRoutingDataSource);
+        // 阶段 4：逻辑连接 1:N 分发取代 LazyConnectionDataSourceProxy（懒加载由 ShardingConnection 承担）
+        return new ShardingDataSource(routeResolver, pools);
     }
 
     @Bean

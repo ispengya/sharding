@@ -124,17 +124,18 @@ com.ispengya.sharding
 
 **目标：一个事务可以触达多个数据源——逻辑连接内部 1:N，为协调策略铺路。**
 
-- [ ] `ShardingConnection implements Connection`：按 SQL 路由取物理连接（复用阶段 2 的选取口），落 `datasource/` 包
-- [ ] 懒加载 + **事务设置回填**：新取的物理连接补 `autoCommit(false)`、隔离级别、readOnly
-- [ ] enlist 登记：维护"本事务触达的数据源连接"名单（写过的单独标记）
-- [ ] `close()` 幂等，归还全部物理连接到各自池
-- [ ] `DataSource.getConnection()` 每次返回**新**包装连接（保证 `REQUIRES_NEW` 语义不串台）
-- [ ] 单分片 enlist → 保持原生提交路径（快速路径）
-- [ ] 与 Spring 对接：事务管理器绑定的仍是逻辑连接
+- [x] `ShardingConnection implements Connection`：按每条 SQL 当时的路由上下文取物理连接（复用 `RouteResolver` 选取口），落 `datasource/` 包
+- [x] 懒加载 + **事务设置回填**：新取的物理连接补 `autoCommit(false)`、隔离级别、readOnly；getter 未取连接前答池默认（对齐原 `LazyConnectionDataSourceProxy` 语义，`doBegin` 无感）
+- [x] enlist 登记：`getTouchedNodeKeys` / `getWrittenNodeKeys`（语句创建时捕获节点 key，`executeUpdate/execute/executeBatch` 打写标记，不解析 SQL）
+- [x] `close()` 幂等，归还全部物理连接到各自池
+- [x] `ShardingDataSource.getConnection()` 每次返回**新**包装连接（保证 `REQUIRES_NEW` 语义不串台）
+- [x] 单分片 enlist → 保持原生提交路径（快速路径）；多分片循环提交/回滚（阶段 5 `LocalCommitStrategy` 占位）
+- [x] 与 Spring 对接：事务管理器绑定的仍是逻辑连接；`LazyConnectionDataSourceProxy` 与 `ShardingRoutingDataSource` 退役
+- [x] savepoint 边界：单物理连接委托原生（与改造前一致），跨分片拒绝（阶段 5 正式禁用 NESTED）
 
-**单测：** 懒加载时机、回填正确性（mock 物理连接验证 `setAutoCommit(false)`）、enlist 名单、close 幂等与连接归还、连续两次 `getConnection()` 返回不同实例
-**集成：** ① 单分片事务提交/回滚与阶段 0 基线一致 ② 一个事务执行写两个数据源（本阶段提交行为暂为循环提交，为阶段 5 占位）
-**出口：** 回归全绿——**单分片路径行为与改造前完全一致是本阶段硬标准**
+**单测：** 懒加载时机、回填正确性（mock 物理连接验证 `setAutoCommit(false)`）、enlist 名单与写标记、close 幂等与连接归还、连续两次 `getConnection()` 返回不同实例（`ShardingConnectionTest` 15 用例）
+**集成：** ① 单分片事务提交/回滚与阶段 0 基线一致 ② 一个事务写两个数据源 → 循环提交两行都落库 / 回滚两行都撤销 ③ 外层回滚不影响 `REQUIRES_NEW` 内层已提交数据（`MultiDatasourceTxIntegrationTest`）
+**出口（2026-11-07 达成）：回归全绿——`mvn test` 103 用例全绿，单分片路径行为与改造前完全一致**
 
 ## 阶段 5：LOCAL 模式 + `@TxMode`
 

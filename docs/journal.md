@@ -171,13 +171,31 @@
 
 ## 阶段 4：包装式多连接
 
-**日期：** 未开始
+**日期：** 2026-11-07（当日完成）
+**产出：** 103 用例全绿（阶段 0/1/2/3 回归 + 新增 19：`ShardingConnectionTest` 15、跨数据源集成 3、场景①改写 +1）
+
+### 实现决策
+
+- **`ShardingDataSource` 取代 `ShardingRoutingDataSource` + `LazyConnectionDataSourceProxy`**：直接持有 `Map<物理key, 池>`，`getConnection()` 每次返回新 `ShardingConnection`；懒加载职责由逻辑连接承担（第一条语句前不碰池）
+- **事务设置语义对齐 `LazyConnectionDataSourceProxy`**（读其 5.1.5 源码确认）：`DataSourceTransactionManager.doBegin` 会调 `getAutoCommit()`/`getTransactionIsolation()`——getter 未取连接前返回逻辑记录值，未记录则**懒探一次 primary 主库池默认**（启动后首次需要时），探失败兜底取当前路由连接；setter 同步回填到已取的全部物理连接
+- **路由解析时机**：语句**创建时**解析并捕获节点 key（`physicalFor(key)`），既保证上下文有效，又保证写标记归属正确——execute 时不再解析（SLAVE 轮询会推进计数器导致标记错节点）
+- **写标记**：语句代理拦截 `executeUpdate/execute/executeBatch/executeLargeUpdate` → `writtenNodeKeys.add(创建时key)`，不解析 SQL；MyBatis 读走 `executeQuery` 不会误标
+- **提交语义**：enlist 1 个 → 原生快速路径；≥2 → 循环提交/回滚，尝试全部节点后抛首个异常（阶段 5 接管：重试 + 已交/未交明细日志）
+- **savepoint 边界**：取已 enlist 的单连接（不再解析路由），≥2 个物理连接时拒绝——单分片 NESTED 与改造前一致，跨分片留给阶段 5 正式禁用
+- 传播行为不受影响：`REQUIRED`/`REQUIRES_NEW` 等全部发生在 `ConnectionHolder` 层（Spring 拦截器/管理器），本阶段只换被绑定对象；集成用例外层回滚 + 内层 `REQUIRES_NEW` 已提交互不干扰验证了挂起/恢复路径
+
+### 已知限制（阶段 5 处理）
+
+- 多分片循环提交部分失败：本阶段"尝试全部后抛首个异常"，无重试、无已交/未交明细日志
+- 跨分片写漏标 `@TxMode` 无校验（enlist 写名单已就绪）
+- 跨分片 savepoint 仅运行时拒绝，无启动期/调用期统一校验入口
 
 ### 问题与修复
 
 | # | 问题 | 原因 | 修复方式 | 状态 |
 |---|---|---|---|---|
-| | | | | |
+| 1 | `ShardingConnection` 编译缺 `createStruct`/`createArrayOf`/`getClientInfo`/`setTypeMap` 等方法 | `Connection` 接口方法多，逐个实现遗漏 | 按 javac 报错补齐至全部抽象方法实现 | 已解决 |
+| 2 | 写标记若在 execute 时解析路由，SLAVE 轮询推进会标错节点 | `RouteResolver.resolve` 对 SLAVE 有副作用（轮询计数器） | 语句创建时解析并捕获 key，execute 只用捕获值 | 已解决 |
 
 ---
 
