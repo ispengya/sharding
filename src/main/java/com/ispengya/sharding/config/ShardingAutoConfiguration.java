@@ -2,6 +2,7 @@ package com.ispengya.sharding.config;
 
 import com.ispengya.sharding.algorithm.ShardingAlgorithm;
 import com.ispengya.sharding.algorithm.ShardingAlgorithms;
+import com.ispengya.sharding.annotation.Mode;
 import com.ispengya.sharding.datasource.DataSourceFactory;
 import com.ispengya.sharding.datasource.RouteResolver;
 import com.ispengya.sharding.datasource.ShardingDataSource;
@@ -13,6 +14,9 @@ import com.ispengya.sharding.route.RouteAspect;
 import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import com.ispengya.sharding.sql.ShardingMybatisInterceptor;
 import com.ispengya.sharding.sql.ShardingRewriter;
+import com.ispengya.sharding.tx.LocalCommitStrategy;
+import com.ispengya.sharding.tx.TxCommitStrategy;
+import com.ispengya.sharding.tx.TxModeAspect;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -78,6 +82,18 @@ public class ShardingAutoConfiguration {
         return new DBRouterPlacementValidator();
     }
 
+    // ---------- 事务协调（@TxMode 切面 + 提交策略） ----------
+
+    @Bean
+    public TxModeAspect txModeAspect() {
+        return new TxModeAspect();
+    }
+
+    @Bean
+    public TxCommitStrategy localCommitStrategy() {
+        return new LocalCommitStrategy();
+    }
+
     // ---------- 数据源与事务 ----------
 
     @Bean
@@ -88,7 +104,7 @@ public class ShardingAutoConfiguration {
     }
 
     @Bean
-    public DataSource dynamicDataSource(RouteResolver routeResolver) {
+    public DataSource dynamicDataSource(RouteResolver routeResolver, ApplicationContext applicationContext) {
         Map<String, ShardingProperties.DataSourceGroup> groups = shardingProperties.getDataSources();
         if (CollectionUtils.isEmpty(groups)) {
             throw new ShardingException("sharding dataSources properties is empty");
@@ -112,8 +128,20 @@ public class ShardingAutoConfiguration {
             }
         }
 
-        // 阶段 4：逻辑连接 1:N 分发取代 LazyConnectionDataSourceProxy（懒加载由 ShardingConnection 承担）
-        return new ShardingDataSource(routeResolver, pools);
+        // 收敛提交协调策略（Mode → TxCommitStrategy，模式不可重复；缺省 LOCAL 必须存在）
+        Map<Mode, TxCommitStrategy> strategies = new HashMap<>();
+        for (TxCommitStrategy strategy : applicationContext.getBeansOfType(TxCommitStrategy.class).values()) {
+            TxCommitStrategy previous = strategies.put(strategy.getMode(), strategy);
+            if (previous != null) {
+                throw new ShardingException("提交策略模式重复注册: " + strategy.getMode());
+            }
+        }
+        if (!strategies.containsKey(Mode.LOCAL)) {
+            throw new ShardingException("缺少 Mode.LOCAL 提交策略");
+        }
+
+        // 逻辑连接 1:N 分发取代 LazyConnectionDataSourceProxy（懒加载由 ShardingConnection 承担）
+        return new ShardingDataSource(routeResolver, pools, strategies);
     }
 
     @Bean

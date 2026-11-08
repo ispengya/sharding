@@ -201,13 +201,33 @@
 
 ## 阶段 5：LOCAL 模式 + `@TxMode`
 
-**日期：** 未开始
+**日期：** 2026-11-08（当日完成）
+**产出：** 129 用例全绿（前四阶段回归 + 新增 26：策略 9、切面 7、连接校验 +5、集成 5）
+
+### 实现决策
+
+- **提交协调挂点在 `ShardingConnection.commit/rollback`**：按 `TxContextHolder` 模式查 `TxCommitStrategy`（`ShardingDataSource` 持有 Mode → 策略表，缺省 LOCAL）——不自定义 `PlatformTransactionManager`，Spring 传播矩阵零改动（理由见对话记录：绑定资源必须是 Connection，管理器层改动仍需回调逻辑连接）
+- **模式载体是 ThreadLocal 而非 `ConnectionHolder`**：`TxModeAspect` 位于事务拦截器**外层**（`LOWEST_PRECEDENCE - 1`，入口处事务尚未开启，无法写入 Holder）→ 无条件记录模式、帧结束 save/restore（内层不覆盖）；消费点（写入校验/提交）以"是否存在活动事务"决定生效与否——未开事务时模式无人消费，天然满足"不生效也不报错"
+- **XA/THREE_PC 校验放在提交时**：切面无法区分"有无事务"（见上），改为 `getCommitStrategy` 查不到即报"尚未实现"——提交失败 → 事务回滚，语义仍是"调用期报错回滚"
+- **写入校验在语句代理内、计入写名单之前**：`executeUpdate` 时先校验后计数——第二分片的语句在校验失败时**根本不执行**，回滚天然干净
+- **传播判定不依赖 Spring 内部**：`REQUIRES_NEW` = `DefaultTransactionStatus.getSuspendedResources() != null`（首次开启的 REQUIRES_NEW 无外层可挂起，与 REQUIRED 等价不拦——无协调风险，见已知限制）；`NESTED` = `status.hasSavepoint()`；外层已跨库的判定用自维护 ThreadLocal 标记（写名单 ≥2 时置位、对应连接 close 时清理，与连接生命周期对称）
+- **执行期异常经 MyBatis 包装**（`MyBatisSystemException → PersistenceException → ShardingException`）——与 Spring 数据访问异常惯例一致，集成测试沿 cause 链断言根因；切面期异常（漏标 @TxMode 的入口场景除外）原样抛出
+- **savepoint 归属连接跟踪**：`setSavepoint` 记录归属连接，`rollback/releaseSavepoint` 按归属连接执行（JDBC savepoint 本就是单连接语义）——跨分片校验拒绝后，事务层回滚 savepoint 不再被"多连接"守卫反噬，NESTED 禁止异常得以原样浮出
+
+### 已知限制（记录，非缺陷）
+
+- 首次开启的 `REQUIRES_NEW`（无外层事务）不受传播校验——功能上与 `REQUIRED` 等价，无独立提交冲突风险
+- 传播判定依赖 `TransactionAspectSupport` 的注解驱动状态：`TransactionTemplate` 编程式事务中检测不到 REQUIRES_NEW（usage.md 约定 `@Transactional` 风格，不覆盖）
+- `XA`/`THREE_PC` 枚举可用、提交时报"尚未实现"，等待后续 2PC/3PC 阶段实现策略
+- 跨分片提交部分失败 = LOCAL 固有语义（无原子性）：已交分片保留，明细日志/异常信息供对账
 
 ### 问题与修复
 
 | # | 问题 | 原因 | 修复方式 | 状态 |
 |---|---|---|---|---|
-| | | | | |
+| 1 | 加了 `@TxMode` 仍报"未标注"，跨分片用例全挂 | 切面在事务拦截器外层，入口处 `isActualTransactionActive()` 为 false，条件把模式设置跳过了 | 模式无条件记录（帧 save/restore），生效与否交给消费点判断 | 已修复 |
+| 2 | 跨分片用例抛 `MyBatisSystemException` 而非 `ShardingException` | 执行期异常经 `DefaultSqlSession` 的 `ExceptionFactory` 包装 | 测试改沿 cause 链断言根因（框架行为与 Spring 惯例一致，不改产品代码） | 已解决 |
+| 3 | NESTED 用例抛出 `TransactionSystemException: Could not roll back to JDBC savepoint`，真因被掩盖 | 写第二分片时 ds_1 已在 prepare 阶段取出 → `rollback(savepoint)` 的 size>1 守卫先炸，覆盖了 NESTED 禁止异常 | savepoint 归属连接跟踪：回滚按创建时连接执行（JDBC 正确语义），守卫只留在创建时 | 已修复 |
 
 ---
 

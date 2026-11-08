@@ -1,6 +1,14 @@
 package com.ispengya.sharding.datasource;
 
+import com.ispengya.sharding.annotation.Mode;
 import com.ispengya.sharding.exception.ShardingException;
+import com.ispengya.sharding.tx.TxCommitStrategy;
+import com.ispengya.sharding.tx.TxContextHolder;
+import org.springframework.transaction.NoTransactionException;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.sql.Blob;
 import java.sql.CallableStatement;
@@ -25,12 +33,14 @@ import java.util.Set;
 import java.util.concurrent.Executor;
 
 /**
- * 逻辑连接（阶段 4）：事务管理器绑定的就是它，内部 1:N 分发到物理节点池。
+ * 逻辑连接：事务管理器绑定的就是它，内部 1:N 分发到物理节点池。
  * <ul>
  *   <li>懒加载：第一条语句创建时才按当时路由上下文取物理连接并回填事务设置</li>
- *   <li>enlist：记录本连接触达的物理节点与写过的节点（阶段 5 跨库校验的判据）</li>
- *   <li>commit/rollback 只操作已登记连接：单连接走原生快速路径，多连接循环提交（阶段 5 占位）</li>
- *   <li>close 幂等，归还全部物理连接</li>
+ *   <li>enlist：记录触达/写过的物理节点；写入第二个数据源时执行跨库校验
+ *       （缺 @TxMode 报错、REQUIRES_NEW/NESTED 禁用）</li>
+ *   <li>commit/rollback 按当前 @TxMode 模式委托 TxCommitStrategy
+ *       （缺省 LOCAL：单分片原生快速路径、多分片循环+重试+明细）</li>
+ *   <li>close 幂等，归还全部物理连接并清理跨库标记</li>
  * </ul>
  * autoCommit/隔离级别/readOnly 的 getter 在未取物理连接前返回逻辑值或池默认
  * （对齐 LazyConnectionDataSourceProxy，供 DataSourceTransactionManager.doBegin 使用）。
@@ -156,58 +166,28 @@ public class ShardingConnection implements Connection {
         return Collections.unmodifiableSet(new LinkedHashSet<>(writtenNodeKeys));
     }
 
+    /**
+     * 已 enlist 的物理连接快照（key → 连接），供提交策略遍历；只读视图
+     */
+    public Map<String, Connection> getPhysicalConnections() {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(physicalConnections));
+    }
+
     // ---------- 提交 / 回滚 / 关闭 ----------
 
     @Override
     public void commit() throws SQLException {
         checkOpen();
-        if (physicalConnections.isEmpty()) {
-            return;
-        }
-        if (physicalConnections.size() == 1) {
-            // 单分片快速路径：原生提交，行为与改造前完全一致
-            physicalConnections.values().iterator().next().commit();
-            return;
-        }
-        // 多分片循环提交（阶段 5 LocalCommitStrategy 接管：重试 + 明细日志）
-        SQLException first = null;
-        for (Map.Entry<String, Connection> entry : physicalConnections.entrySet()) {
-            try {
-                entry.getValue().commit();
-            } catch (SQLException e) {
-                if (first == null) {
-                    first = e;
-                }
-            }
-        }
-        if (first != null) {
-            throw first;
-        }
+        TxCommitStrategy strategy = dataSource.getCommitStrategy(TxContextHolder.getMode());
+        strategy.prepare(this);
+        strategy.commit(this);
     }
 
     @Override
     public void rollback() throws SQLException {
         checkOpen();
-        if (physicalConnections.isEmpty()) {
-            return;
-        }
-        if (physicalConnections.size() == 1) {
-            physicalConnections.values().iterator().next().rollback();
-            return;
-        }
-        SQLException first = null;
-        for (Map.Entry<String, Connection> entry : physicalConnections.entrySet()) {
-            try {
-                entry.getValue().rollback();
-            } catch (SQLException e) {
-                if (first == null) {
-                    first = e;
-                }
-            }
-        }
-        if (first != null) {
-            throw first;
-        }
+        TxCommitStrategy strategy = dataSource.getCommitStrategy(TxContextHolder.getMode());
+        strategy.rollback(this);
     }
 
     @Override
@@ -228,10 +208,21 @@ public class ShardingConnection implements Connection {
                 }
             }
         }
+        clearCrossDatasourceMarkIfAny();
         physicalConnections.clear();
         writtenNodeKeys.clear();
         if (first != null) {
             throw first;
+        }
+    }
+
+    /**
+     * 写入 ≥2 数据源的连接关闭时清理跨库标记（标记的设置与清理对称，
+     * 保证线程复用不残留；REQUIRES_NEW 内层连接写名单不足 2 不会误清外层标记）
+     */
+    private void clearCrossDatasourceMarkIfAny() {
+        if (writtenNodeKeys.size() >= 2) {
+            TxContextHolder.clearCrossDatasourceWritten();
         }
     }
 
@@ -329,7 +320,8 @@ public class ShardingConnection implements Connection {
     }
 
     /**
-     * 包装语句：executeUpdate/execute/executeBatch 时把该语句创建时所属的节点标记为"写过"
+     * 包装语句：executeUpdate/execute/executeBatch 时把该语句创建时所属的节点标记为"写过"，
+     * 并在事务内执行跨库校验（写第二个数据源必须标 @TxMode、禁用 REQUIRES_NEW/NESTED）
      */
     @SuppressWarnings("unchecked")
     private <T extends Statement> T wrap(T statement, String nodeKey) {
@@ -342,20 +334,85 @@ public class ShardingConnection implements Connection {
                     String name = method.getName();
                     if ("executeUpdate".equals(name) || "execute".equals(name)
                             || "executeBatch".equals(name) || "executeLargeUpdate".equals(name)) {
+                        validateBeforeWriteMark(nodeKey);
                         writtenNodeKeys.add(nodeKey);
+                        if (TransactionSynchronizationManager.isActualTransactionActive()
+                                && writtenNodeKeys.size() >= 2) {
+                            TxContextHolder.markCrossDatasourceWritten();
+                        }
                     }
                     return method.invoke(statement, args);
                 });
     }
 
-    // ---------- savepoint：仅单物理连接语义明确，跨分片直接拒绝 ----------
+    /**
+     * 写入校验（在计入写名单之前执行）：
+     * 1. REQUIRES_NEW 挂起的外层已写入多数据源 → 禁止再开独立事务写
+     * 2. 写入第二个数据源：必须已标 @TxMode；REQUIRES_NEW/NESTED 禁用
+     * 非事务的逐条自动提交不校验；跨数据源只读不进写名单、天然豁免
+     */
+    private void validateBeforeWriteMark(String nodeKey) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            return;
+        }
+        if (isRequiresNew() && TxContextHolder.isCrossDatasourceWritten()) {
+            throw new ShardingException("跨数据源事务仅支持 REQUIRED：外层事务已写入多个数据源，禁止 REQUIRES_NEW（节点 "
+                    + nodeKey + "）");
+        }
+        if (writtenNodeKeys.size() + 1 >= 2) {
+            if (TxContextHolder.getMode() == null) {
+                throw new ShardingException("事务写入了多个数据源但未标注 @TxMode：请在事务入口方法标注 @TxMode(Mode.LOCAL)"
+                        + "（单数据源写与跨数据源只读无需标注；节点 " + nodeKey + "）");
+            }
+            if (isRequiresNew() || isNested()) {
+                throw new ShardingException("跨数据源事务仅支持 REQUIRED，禁用 REQUIRES_NEW/NESTED（节点 " + nodeKey + "）");
+            }
+        }
+    }
 
     /**
-     * 取本连接唯一可参与 savepoint 的物理连接：已 enlist 多个 → 拒绝；
-     * 恰好一个 → 直接用它（不再解析路由，避免轮询推进取到别的从库）；零个 → 按当前上下文取
+     * 当前是否处于 REQUIRES_NEW（存在被挂起的外层事务）；
+     * 首次开启的 REQUIRES_NEW 无外层可挂起，与 REQUIRED 等价，不拦（见 journal）
      */
-    private Connection singlePhysical(String operation) throws SQLException {
+    private boolean isRequiresNew() {
+        TransactionStatus status = currentStatus();
+        return status instanceof DefaultTransactionStatus
+                && ((DefaultTransactionStatus) status).getSuspendedResources() != null;
+    }
+
+    /**
+     * 当前是否处于 NESTED（savepoint 语义）
+     */
+    private boolean isNested() {
+        TransactionStatus status = currentStatus();
+        return status != null && status.hasSavepoint();
+    }
+
+    private TransactionStatus currentStatus() {
+        try {
+            return TransactionAspectSupport.currentTransactionStatus();
+        } catch (NoTransactionException e) {
+            return null;
+        }
+    }
+
+    // ---------- savepoint：创建时拒绝跨分片，回滚按归属连接（JDBC savepoint 本就是单连接语义） ----------
+
+    /**
+     * savepoint 归属的物理连接（创建时记录）：后续即便 enlist 增长，
+     * 回滚/释放仍落在创建它的连接上——NESTED 被跨分片校验拒绝后，
+     * 事务层回滚 savepoint 不会被"多连接"守卫反噬。
+     */
+    private Connection savepointOwner;
+
+    /**
+     * 取创建 savepoint 的连接；无记录时按"至多一个物理连接"守卫
+     */
+    private Connection savepointConnection(String operation) throws SQLException {
         checkOpen();
+        if (savepointOwner != null) {
+            return savepointOwner;
+        }
         if (physicalConnections.size() > 1) {
             throw new ShardingException(operation + "：跨数据源事务不支持 savepoint（NESTED 场景请保持单分片写）");
         }
@@ -367,22 +424,37 @@ public class ShardingConnection implements Connection {
 
     @Override
     public Savepoint setSavepoint() throws SQLException {
-        return singlePhysical("setSavepoint").setSavepoint();
+        // 创建时仍拒绝已跨分片的连接（跨分片 NESTED 语义未定义）
+        checkOpen();
+        if (physicalConnections.size() > 1) {
+            throw new ShardingException("setSavepoint：跨数据源事务不支持 savepoint（NESTED 场景请保持单分片写）");
+        }
+        Connection owner = physicalConnections.size() == 1
+                ? physicalConnections.values().iterator().next() : currentPhysical();
+        savepointOwner = owner;
+        return owner.setSavepoint();
     }
 
     @Override
     public Savepoint setSavepoint(String name) throws SQLException {
-        return singlePhysical("setSavepoint").setSavepoint(name);
+        checkOpen();
+        if (physicalConnections.size() > 1) {
+            throw new ShardingException("setSavepoint：跨数据源事务不支持 savepoint（NESTED 场景请保持单分片写）");
+        }
+        Connection owner = physicalConnections.size() == 1
+                ? physicalConnections.values().iterator().next() : currentPhysical();
+        savepointOwner = owner;
+        return owner.setSavepoint(name);
     }
 
     @Override
     public void rollback(Savepoint savepoint) throws SQLException {
-        singlePhysical("rollback(savepoint)").rollback(savepoint);
+        savepointConnection("rollback(savepoint)").rollback(savepoint);
     }
 
     @Override
     public void releaseSavepoint(Savepoint savepoint) throws SQLException {
-        singlePhysical("releaseSavepoint").releaseSavepoint(savepoint);
+        savepointConnection("releaseSavepoint").releaseSavepoint(savepoint);
     }
 
     // ---------- 其余 Connection 方法：委托当前路由物理连接 ----------
@@ -530,6 +602,7 @@ public class ShardingConnection implements Connection {
         for (Connection connection : physicalConnections.values()) {
             connection.abort(executor);
         }
+        clearCrossDatasourceMarkIfAny();
         physicalConnections.clear();
         writtenNodeKeys.clear();
     }

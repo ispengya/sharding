@@ -141,18 +141,18 @@ com.ispengya.sharding
 
 **目标：第一种协调策略可用，跨数据源写的使用规则落地。**
 
-- [ ] `tx/` 包：`TxCommitStrategy` SPI（`prepare / commit / rollback`，LOCAL 的 prepare 空实现）+ 注册套路与 `algorithm/` 统一
-- [ ] `LocalCommitStrategy`：单分片快速路径 + 多分片循环提交
-- [ ] commit 部分失败：重试 N 次 → 记录事务明细日志（已提交/未提交数据源）+ 错误日志
-- [ ] rollback 循环（含重试）
-- [ ] `annotation/TxMode`（`Mode.LOCAL/XA/THREE_PC`）+ 切面（`tx/`），方法级 > 类级，模式在 `doBegin` 时写入 `ConnectionHolder`
-- [ ] 校验：事务写入 ≥2 个数据源且未标 `@TxMode` → 调用时抛异常（未提交，整体回滚）
-- [ ] 校验：跨数据源事务使用 `REQUIRES_NEW`/`NESTED` → 抛异常
-- [ ] 免标注路径确认：单数据源写、跨数据源只读不触发任何校验
+- [x] `tx/` 包：`TxCommitStrategy` SPI（`prepare / commit / rollback`，LOCAL 的 prepare 为接口 default 空实现）+ 按 `getMode()` 收敛注册（`ShardingDataSource` 持有 Mode → 策略表，模式重复启动报错）
+- [x] `LocalCommitStrategy`：单分片原生快速路径（不重试，与单库事务一致）+ 多分片循环提交
+- [x] commit 部分失败：每节点重试 3 次 → 明细日志（已提交/未提交数据源 + 错误日志）+ `ShardingException` 携带明细与 cause
+- [x] rollback 循环（含重试与明细）
+- [x] `annotation/TxMode`（`Mode.LOCAL/XA/THREE_PC`）+ 切面（`tx/TxModeAspect`，事务拦截器外层），方法级 > 类级；模式写入 `TxContextHolder`（入口帧设置、帧结束还原、内层不覆盖）；XA/THREE_PC 提交时策略未注册报"尚未实现"
+- [x] 校验：事务写入 ≥2 个数据源且未标 `@TxMode` → 第二个数据源写入时抛异常（语句未执行，事务整体回滚）
+- [x] 校验：跨数据源事务使用 `REQUIRES_NEW`/`NESTED` → 抛异常（REQUIRES_NEW 由挂起状态 + 跨库标记判定；NESTED 由 savepoint 状态判定；savepoint 回滚按归属连接，拒绝后不被守卫反噬）
+- [x] 免标注路径确认：单数据源写、跨数据源只读、非事务写均不触发校验
 
-**单测：** 策略选择（注解优先级）、漏标注报错、多数据源写判定（写 vs 只读）、重试逻辑、明细日志内容
-**集成：** ① 跨分片 LOCAL 提交成功 ② 注入某分片 commit 失败 → 其余回滚/明细日志正确 ③ 跨分片回滚全部生效 ④ 单数据源事务无需标注正常运行 ⑤ 漏标 `@TxMode` 报错回滚
-**出口：** 回归全绿 + usage.md 第 4 节规则逐条可测
+**单测：** 策略选择与注解优先级、漏标注报错、多数据源写判定（写 vs 只读 vs 非事务）、重试逻辑与明细内容、未实现模式报错（`ShardingConnectionTest` 20、`LocalCommitStrategyTest` 9、`TxModeAspectTest` 7）
+**集成：** ① 跨分片 LOCAL 提交成功 ② 注入某分片 commit 失败 → 重试 3 次抛明细、回滚后已交分片保留 ③ 跨分片回滚全部生效 ④ 单数据源事务无需标注正常运行 ⑤ 漏标 `@TxMode` 报错回滚 ⑥ 跨数据源只读免标注 ⑦ 外层跨库写后内层 `REQUIRES_NEW` 报错 ⑧ `NESTED` 内层写第二分片报错
+**出口（2026-11-08 达成）：回归全绿 + usage.md 第 4 节规则逐条可测，`mvn test` 129 用例全绿**
 
 ## 阶段 6：2PC（`Mode.XA`）
 

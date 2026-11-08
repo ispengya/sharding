@@ -7,4 +7,8 @@ public class ShardingException extends RuntimeException {
     public ShardingException(String message) {
         super(message);
     }
+
+    public ShardingException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

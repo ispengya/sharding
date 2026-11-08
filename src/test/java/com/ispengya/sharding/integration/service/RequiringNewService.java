@@ -7,7 +7,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * REQUIRES_NEW 载体（阶段 4）：内层事务挂起外层、取新逻辑连接独立提交
+ * 独立事务传播载体：REQUIRES_NEW（挂起外层、新逻辑连接独立提交）与 NESTED（savepoint 内层）
  */
 @Service
 public class RequiringNewService {
@@ -20,6 +20,11 @@ public class RequiringNewService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void insertOk(TOrder order) {
+        orderMapper.insert(order);
+    }
+
+    @Transactional(propagation = Propagation.NESTED)
+    public void insertNested(TOrder order) {
         orderMapper.insert(order);
     }
 }

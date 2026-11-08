@@ -1,5 +1,6 @@
 package com.ispengya.sharding.integration;
 
+import com.ispengya.sharding.annotation.Mode;
 import com.ispengya.sharding.annotation.Route;
 import com.ispengya.sharding.config.ShardingProperties;
 import com.ispengya.sharding.datasource.DataSourceFactory;
@@ -9,6 +10,8 @@ import com.ispengya.sharding.loadbalance.LoadBalances;
 import com.ispengya.sharding.loadbalance.LoadBalancer;
 import com.ispengya.sharding.loadbalance.RoundRobinLoadBalancer;
 import com.ispengya.sharding.route.RouteContextHolder;
+import com.ispengya.sharding.tx.LocalCommitStrategy;
+import com.ispengya.sharding.tx.TxCommitStrategy;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -61,7 +64,9 @@ public class NoRulesReadWriteIntegrationTest {
         Map<String, DataSource> pools = new HashMap<>();
         pools.put(RouteResolver.masterKey("ds_0"), DataSourceFactory.create("ds_0-master", group.getMaster()));
         pools.put(RouteResolver.slaveKey("ds_0", 0), DataSourceFactory.create("ds_0-slave-0", group.getSlaves().get(0)));
-        shardingDataSource = new ShardingDataSource(resolver, pools);
+        Map<Mode, TxCommitStrategy> strategies = new HashMap<>();
+        strategies.put(Mode.LOCAL, new LocalCommitStrategy());
+        shardingDataSource = new ShardingDataSource(resolver, pools, strategies);
 
         execute(MASTER_URL, "CREATE TABLE IF NOT EXISTS t_rw_plain (id VARCHAR(64) PRIMARY KEY)");
         execute(MASTER_URL, "DELETE FROM t_rw_plain");

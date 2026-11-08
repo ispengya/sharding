@@ -1,6 +1,8 @@
 package com.ispengya.sharding.datasource;
 
+import com.ispengya.sharding.annotation.Mode;
 import com.ispengya.sharding.exception.ShardingException;
+import com.ispengya.sharding.tx.TxCommitStrategy;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.sql.DataSource;
@@ -13,7 +15,8 @@ import java.util.Map;
 import java.util.logging.Logger;
 
 /**
- * 分片数据源（阶段 4）：持有全部物理节点池（key = RouteResolver 物理节点 key），
+ * 分片数据源：持有全部物理节点池（key = RouteResolver 物理节点 key）与
+ * 提交协调策略注册表（Mode → TxCommitStrategy，缺省 LOCAL）。
  * 每次 getConnection() 返回新的 ShardingConnection（逻辑连接，保证 REQUIRES_NEW 不串台）。
  * 物理连接按每条 SQL 当时的路由上下文在 ShardingConnection 内懒加载分发。
  * 启动时探一次 primary 主库池的 autoCommit/隔离级别默认值，供逻辑连接
@@ -24,13 +27,27 @@ public class ShardingDataSource implements DataSource {
 
     private final RouteResolver routeResolver;
     private final Map<String, DataSource> pools;
+    private final Map<Mode, TxCommitStrategy> commitStrategies;
 
     private volatile Boolean defaultAutoCommit;
     private volatile Integer defaultTransactionIsolation;
 
-    public ShardingDataSource(RouteResolver routeResolver, Map<String, DataSource> pools) {
+    public ShardingDataSource(RouteResolver routeResolver, Map<String, DataSource> pools,
+                              Map<Mode, TxCommitStrategy> commitStrategies) {
         this.routeResolver = routeResolver;
         this.pools = Collections.unmodifiableMap(new LinkedHashMap<>(pools));
+        this.commitStrategies = Collections.unmodifiableMap(new LinkedHashMap<>(commitStrategies));
+    }
+
+    /**
+     * 按协调模式取提交策略；模式缺省（未标 @TxMode 的单分片/只读事务）按 LOCAL
+     */
+    public TxCommitStrategy getCommitStrategy(Mode mode) {
+        TxCommitStrategy strategy = commitStrategies.get(mode != null ? mode : Mode.LOCAL);
+        if (strategy == null) {
+            throw new ShardingException("Mode." + mode + " 的提交策略未注册（该模式尚未实现）");
+        }
+        return strategy;
     }
 
     @Override

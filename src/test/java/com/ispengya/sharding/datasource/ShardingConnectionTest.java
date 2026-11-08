@@ -1,5 +1,6 @@
 package com.ispengya.sharding.datasource;
 
+import com.ispengya.sharding.annotation.Mode;
 import com.ispengya.sharding.annotation.Route;
 import com.ispengya.sharding.config.ShardingProperties;
 import com.ispengya.sharding.exception.ShardingException;
@@ -7,21 +8,27 @@ import com.ispengya.sharding.loadbalance.LoadBalances;
 import com.ispengya.sharding.loadbalance.LoadBalancer;
 import com.ispengya.sharding.loadbalance.RoundRobinLoadBalancer;
 import com.ispengya.sharding.route.RouteContextHolder;
+import com.ispengya.sharding.tx.LocalCommitStrategy;
+import com.ispengya.sharding.tx.TxCommitStrategy;
+import com.ispengya.sharding.tx.TxContextHolder;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -33,7 +40,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * 逻辑连接单测：懒加载时机、事务设置回填、enlist 与写标记、
- * 单分片快速路径与多分片循环提交、close 幂等、savepoint 跨分片拒绝。
+ * 单分片快速路径与多分片循环提交（含重试与明细）、close 幂等、
+ * savepoint 跨分片拒绝、跨库写入校验（漏标 @TxMode / 只读豁免 / 非事务豁免）。
  */
 public class ShardingConnectionTest {
 
@@ -50,6 +58,8 @@ public class ShardingConnectionTest {
     public void setUp() throws Exception {
         RouteContextHolder.clearDbHolder();
         RouteContextHolder.clearRoute();
+        TxContextHolder.clearMode();
+        TxContextHolder.clearCrossDatasourceWritten();
 
         ShardingProperties properties = new ShardingProperties();
         properties.setPrimary("ds_0");
@@ -89,13 +99,20 @@ public class ShardingConnectionTest {
         pools.put(RouteResolver.masterKey("ds_0"), master0Pool);
         pools.put(RouteResolver.slaveKey("ds_0", 0), slave0Pool);
         pools.put(RouteResolver.masterKey("ds_1"), master1Pool);
-        dataSource = new ShardingDataSource(resolver, pools);
+
+        // 提交策略：3 次重试、0 延迟（快速验证重试次数）
+        Map<Mode, TxCommitStrategy> strategies = Collections.singletonMap(
+                Mode.LOCAL, (TxCommitStrategy) new LocalCommitStrategy(3, 0));
+        dataSource = new ShardingDataSource(resolver, pools, strategies);
     }
 
     @After
     public void tearDown() {
         RouteContextHolder.clearDbHolder();
         RouteContextHolder.clearRoute();
+        TxContextHolder.clearMode();
+        TxContextHolder.clearCrossDatasourceWritten();
+        TransactionSynchronizationManager.setActualTransactionActive(false);
     }
 
     // ---------- 懒加载与回填 ----------
@@ -223,7 +240,7 @@ public class ShardingConnectionTest {
     }
 
     @Test
-    public void multiShardCommitAttemptsAllThenThrowsFirstFailure() throws Exception {
+    public void multiShardCommitRetriesThenThrowsWithDetail() throws Exception {
         ShardingConnection connection = (ShardingConnection) dataSource.getConnection();
         RouteContextHolder.setDbHolder("ds_0");
         connection.prepareStatement("INSERT INTO t VALUES (1)");
@@ -233,13 +250,110 @@ public class ShardingConnectionTest {
 
         try {
             connection.commit();
-            fail("应抛出首个提交失败异常");
-        } catch (SQLException expected) {
-            assertEquals("commit failed", expected.getMessage());
+            fail("应抛出提交部分失败异常");
+        } catch (ShardingException expected) {
+            // 明细日志内容：已提交 / 未提交节点 + 原因
+            assertTrue(expected.getMessage().contains("ds_0#master"));
+            assertTrue(expected.getMessage().contains("ds_1#master"));
+            assertNotNull(expected.getCause());
+            assertEquals("commit failed", expected.getCause().getMessage());
         }
-        // 已尝试全部节点（master0 已提交）
+        // 失败节点重试 3 次；成功节点只提交 1 次
+        verify(master1, times(3)).commit();
         verify(master0, times(1)).commit();
         connection.close();
+    }
+
+    // ---------- 跨库写入校验（@TxMode / REQUIRES_NEW / NESTED） ----------
+
+    @Test
+    public void secondWriteInTransactionWithoutTxModeThrows() throws Exception {
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        ShardingConnection connection = (ShardingConnection) dataSource.getConnection();
+        try {
+            RouteContextHolder.setDbHolder("ds_0");
+            connection.prepareStatement("INSERT INTO t VALUES (1)").executeUpdate();
+            RouteContextHolder.setDbHolder("ds_1");
+            connection.prepareStatement("INSERT INTO t VALUES (2)").executeUpdate();
+            fail("事务写入第二个数据源且未标 @TxMode 应当抛出异常");
+        } catch (ShardingException expected) {
+            assertTrue(expected.getMessage().contains("@TxMode"));
+        } finally {
+            connection.close();
+        }
+    }
+
+    @Test
+    public void secondWriteWithTxModePassesAndMarksCrossDatasource() throws Exception {
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TxContextHolder.setMode(Mode.LOCAL);
+        ShardingConnection connection = (ShardingConnection) dataSource.getConnection();
+        try {
+            RouteContextHolder.setDbHolder("ds_0");
+            connection.prepareStatement("INSERT INTO t VALUES (1)").executeUpdate();
+            RouteContextHolder.setDbHolder("ds_1");
+            connection.prepareStatement("INSERT INTO t VALUES (2)").executeUpdate();
+
+            assertEquals(2, connection.getWrittenNodeKeys().size());
+            assertTrue(TxContextHolder.isCrossDatasourceWritten());
+        } finally {
+            connection.close();
+        }
+        // 写名单 ≥2 的连接关闭时清理跨库标记
+        assertFalse(TxContextHolder.isCrossDatasourceWritten());
+    }
+
+    @Test
+    public void crossDatasourceReadOnlyTransactionNeedsNoTxMode() throws Exception {
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        ShardingConnection connection = (ShardingConnection) dataSource.getConnection();
+        try {
+            RouteContextHolder.setDbHolder("ds_0");
+            // 只读不进写名单：仅 prepareStatement（executeQuery 不触发写标记）
+            connection.prepareStatement("SELECT 1");
+            RouteContextHolder.setDbHolder("ds_1");
+            connection.prepareStatement("SELECT 2");
+
+            assertEquals(2, connection.getTouchedNodeKeys().size());
+            assertTrue(connection.getWrittenNodeKeys().isEmpty());
+        } finally {
+            connection.close();
+        }
+    }
+
+    @Test
+    public void writesOutsideTransactionSkipValidation() throws Exception {
+        // 非事务：逐条自动提交，无原子性语义，不校验 @TxMode
+        ShardingConnection connection = (ShardingConnection) dataSource.getConnection();
+        try {
+            RouteContextHolder.setDbHolder("ds_0");
+            connection.prepareStatement("INSERT INTO t VALUES (1)").executeUpdate();
+            RouteContextHolder.setDbHolder("ds_1");
+            connection.prepareStatement("INSERT INTO t VALUES (2)").executeUpdate();
+            assertEquals(2, connection.getWrittenNodeKeys().size());
+            assertFalse(TxContextHolder.isCrossDatasourceWritten());
+        } finally {
+            connection.close();
+        }
+    }
+
+    @Test
+    public void unimplementedModeFailsAtStrategyLookup() {
+        // XA/THREE_PC 尚未实现：提交时按模式查策略即报错
+        try {
+            dataSource.getCommitStrategy(Mode.XA);
+            fail("Mode.XA 无策略应当抛出异常");
+        } catch (ShardingException expected) {
+            assertTrue(expected.getMessage().contains("XA"));
+        }
+        try {
+            dataSource.getCommitStrategy(Mode.THREE_PC);
+            fail("Mode.THREE_PC 无策略应当抛出异常");
+        } catch (ShardingException expected) {
+            assertTrue(expected.getMessage().contains("THREE_PC"));
+        }
+        // 缺省模式（null）→ LOCAL
+        assertNotNull(dataSource.getCommitStrategy(null));
     }
 
     // ---------- close ----------
