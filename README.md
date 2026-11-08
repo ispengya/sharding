@@ -2,16 +2,14 @@
 
 基于 Spring Boot + MyBatis 的分库分表中间件：分片路由、读写分离、跨数据源事务（LOCAL / 2PC / 3PC）一体，配置驱动、注解即用。
 
-> **状态：开发中，尚未发布。** 完整使用说明见 **[docs/usage.md](docs/usage.md)**（以该文档为验收口径）；设计与实现过程见 [docs/plan.md](docs/plan.md) / [docs/steps.md](docs/steps.md) / [docs/journal.md](docs/journal.md)。
-
 ## 特性
 
-- **分库分表**：按逻辑表配置规则（`rules`），无规则的表落 primary 直通；SQL 自动改写为物理表名（基于 Druid 解析，支持 JOIN）
+- **分库分表**：逻辑表按 `rules` 配置分片规则，无规则的表落 primary 直通；基于 Druid 解析自动改写 SQL 表名，支持 JOIN
 - **读写分离**：`slaves` 配置即开启，`@DBRouter(route = SLAVE)` 显式走从库，组内 `round_robin` / `random` 负载均衡
 - **自定义分片算法**：实现 `ShardingAlgorithm` 并标注 `@Algorithm("名字")`，配置按名引用
-- **跨数据源事务**：逻辑连接 1:N 分发 + 三种协调模式——`Mode.LOCAL`（循环提交+重试+明细）、`Mode.XA`（真两阶段，事务日志 + 启动恢复）、`Mode.THREE_PC`（三阶段 + 阶段超时）
-- **使用规则显式校验**：跨分片写必须标 `@TxMode`、禁用 `REQUIRES_NEW`/`NESTED`、事务内禁 `route = SLAVE`——违规调用即报错，不静默
-- **启动期失败快**：数据源/算法/负载均衡引用、`@DBRouter` 标注位置等错误在启动时抛出
+- **跨数据源事务**：逻辑连接 1:N 分发，三种协调模式——`LOCAL`（循环提交 + 重试 + 明细）、`XA`（真两阶段，事务日志 + 启动恢复）、`THREE_PC`（三阶段 + 阶段超时）
+- **违规即报错**：跨分片写必须标 `@TxMode`、禁用 `REQUIRES_NEW` / `NESTED`、事务内禁 `route = SLAVE`——调用即报错，不静默降级
+- **启动期失败快**：数据源 / 算法 / 负载均衡引用、`@DBRouter` 标注位置等错误在启动时抛出
 
 ## 快速开始
 
@@ -19,7 +17,7 @@
 
 ```xml
 <dependency>
-    <groupId>com.ispengya</groupId>
+    <groupId>io.github.ispengya</groupId>
     <artifactId>sharding</artifactId>
     <version>0.0.1</version>
 </dependency>
@@ -128,7 +126,7 @@ sharding:
 
 类需位于应用组件扫描范围内；内置算法：`hash`（两侧可用）、`range_month`（仅分库）、`range_day`（仅分表）。
 
-## 跨数据源事务规则速查
+## 跨数据源事务
 
 | 场景 | 要求 |
 |---|---|
@@ -139,7 +137,7 @@ sharding:
 | `route = SLAVE` | 活动事务内使用报错；该组无 slaves 时降级走主库 |
 | XA / 3PC 事务日志 | 表 `sharding_tx_log` 由框架在 primary 自动创建；启动时自动恢复悬决事务 |
 
-模式选择：一般业务 `LOCAL`（无原子性，失败靠明细日志对账）；要求强一致用 `XA`（推荐）或 `THREE_PC`。
+**模式选择**：一般业务用 `LOCAL`（无原子性，失败靠明细日志对账）；要求强一致用 `XA`（推荐）或 `THREE_PC`。
 
 ## 构建与测试
 
@@ -147,12 +145,11 @@ sharding:
 - 单测 + 集成测试（需 Docker，一键起真实 MySQL 三节点：2 主分库 + 1 从读写分离）：
 
 ```shell
-bash scripts/test.sh          # 起环境 → 等健康 → mvn test
-mvn test                      # 无 Docker 时只跑单测需排除集成：
-mvn test -Dtest='!*IntegrationTest'
+bash scripts/test.sh                                  # 起环境 → 等健康 → 全量测试
+mvn test -Dtest='!*IntegrationTest'                   # 无 Docker 时仅跑单测
 ```
 
-当前测试规模：158 用例（单测 + 真实 MySQL 集成），覆盖分片路由、读写分离、事务三模式与崩溃恢复。
+当前 158 个用例（单测 + 真实 MySQL 集成），覆盖分片路由、读写分离、事务三模式与崩溃恢复。
 
 ## 注意事项
 
@@ -162,6 +159,7 @@ mvn test -Dtest='!*IntegrationTest'
 - **连接池容量**：跨分片事务会同时持有多个池的连接，`maxActive` 按并发跨分片事务数规划
 - **XA 参与者**：仅主库（事务内禁止路由到从库）；存储引擎需 InnoDB
 
-## 版本
+## 版本与许可
 
 - `0.0.1`（开发中，未发布）——配置模型、包结构与旧版（`dbRule`/`strategyClass`）完全不兼容，详见 [docs/journal.md](docs/journal.md)
+- 开源许可：[MIT License](LICENSE)
