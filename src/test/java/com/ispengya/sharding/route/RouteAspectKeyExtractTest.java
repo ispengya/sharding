@@ -26,9 +26,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 分库键提取测试（新语义）：
- * 单字符串参数直取、@Param 精确匹配、POJO 字段、显式 key、类级注解；
- * 提取不到或规则缺失一律抛 ShardingException（已知问题 #3/#4 在阶段 2 修复后的行为）。
+ * 分库键提取测试（方法基线语义）：
+ * 单字符串参数直取、@Param 精确匹配、POJO 字段、类级注解；
+ * 提取不到或规则缺失一律抛 ShardingException（入口 fail-fast）。
  */
 public class RouteAspectKeyExtractTest {
 
@@ -64,9 +64,6 @@ public class RouteAspectKeyExtractTest {
         void bean(Order order);
 
         void missing(@Param("foo") String foo, @Param("bar") String bar);
-
-        @DBRouter(key = "orderId")
-        void explicitKey(@Param("orderId") String orderId, @Param("userId") String userId);
 
         @DBRouter(route = Route.SLAVE)
         void slaveRead(@Param("userId") String userId);
@@ -133,13 +130,6 @@ public class RouteAspectKeyExtractTest {
         aspect.resolveDbRoute(method, new Object[]{"whatever", "nothing"}, Fixture.class);
     }
 
-    @Test(expected = ShardingException.class)
-    public void explicitKeyMustBelongToARule() throws Exception {
-        // key=orderId 是分表键而非任何分库规则的键 → 报错
-        Method method = Fixture.class.getMethod("explicitKey", String.class, String.class);
-        aspect.resolveDbRoute(method, new Object[]{"o-1", "u-1"}, Fixture.class);
-    }
-
     @Test
     public void classLevelAnnotationWorks() throws Exception {
         Method method = ClassAnnotated.class.getMethod("load", String.class);
@@ -200,6 +190,32 @@ public class RouteAspectKeyExtractTest {
         });
 
         assertEquals("ok", aspect.doRouter(jp));
+        assertNull(RouteContextHolder.getRoute());
+        assertNull(RouteContextHolder.getDbHolder());
+    }
+
+    @Test
+    public void nestedInvocationRestoresOuterContext() throws Throwable {
+        // 嵌套 @DBRouter 调用：内层退出后外层的 route 与基线必须恢复，不再被无条件清空
+        Method outerMethod = Fixture.class.getMethod("slaveRead", String.class);
+        ProceedingJoinPoint outer = mockJoinPoint(outerMethod, Fixture.class, new Object[]{"u-1"});
+        when(outer.proceed()).thenAnswer(invocation -> {
+            assertEquals(Route.SLAVE, RouteContextHolder.getRoute());
+            final String outerDb = RouteContextHolder.getDbHolder();
+            org.junit.Assert.assertNotNull(outerDb);
+
+            Method innerMethod = Fixture.class.getMethod("annotated", String.class, String.class);
+            ProceedingJoinPoint inner = mockJoinPoint(innerMethod, Fixture.class, new Object[]{"u-99", "o-99"});
+            when(inner.proceed()).thenAnswer(inv -> "inner-ok");
+            assertEquals("inner-ok", aspect.doRouter(inner));
+
+            // 内层已退出：外层上下文应原样还在
+            assertEquals(Route.SLAVE, RouteContextHolder.getRoute());
+            assertEquals(outerDb, RouteContextHolder.getDbHolder());
+            return "outer-ok";
+        });
+
+        assertEquals("outer-ok", aspect.doRouter(outer));
         assertNull(RouteContextHolder.getRoute());
         assertNull(RouteContextHolder.getDbHolder());
     }

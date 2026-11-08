@@ -69,24 +69,32 @@ sharding:
 - **`connection` 属于物理节点**，master 和每个 slave 各自一份，缺省用内置默认值
 - `rules.*.db.databases` 与 `primary` 引用的都是 `dataSources` 的 key
 
-## 2. 分片路由：`@DBRouter`
+## 2. 分片路由
 
-`@DBRouter` 只能标注在 **Mapper 接口的类或方法** 上，标到其他 Bean 上启动即报错。
+**路由跟着"这条 SQL + 这份参数"走**：SQL 触及分片表时，框架在语句执行前（选池之前）
+按该表的 `rules` 规则现场计算分库落点——**不依赖注解**，未标注解的 Mapper 方法
+写/读分片表同样正确落库，漏标注解不会再静默落 primary。
+
+`@DBRouter` 仍然有用，提供两件方法级的事情。它只能标注在 **Mapper 接口的类或方法** 上，
+标到其他 Bean 上启动即报错：
+
+1. **方法基线**：进入方法时按参数预算一次落点，供无表 SQL（如 `SELECT @@server_id`
+   读写分离探针）与无规则表的语句沿用；同时**入口即校验**分库键可提取——取不到立刻报错，
+   不等到 SQL 执行
+2. **`route`**：读写角色（见第 3 节）
 
 ```java
 @Mapper
-@DBRouter                          // 类级：全类方法默认生效
 public interface OrderMapper {
 
-    // 裸注解：按 rules 中配置的 shardingKey 自动取键值
-    @DBRouter
-    @Select("SELECT * FROM order WHERE id = #{id}")
-    Order getById(@Param("id") Long id);
-
-    // 参数多时用 key 显式指定从哪个参数取分库键值
-    @DBRouter(key = "userId")
-    @Insert("INSERT INTO order(id, user_id) VALUES(#{id}, #{userId})")
+    // 不标注解也自动路由：SQL 碰 order → 按表规则取 userId 分库、orderId 分表
+    @Insert("INSERT INTO order(id, user_id, order_id) VALUES(#{id}, #{userId}, #{orderId})")
     int insert(Order order);
+
+    // 标注解：额外获得方法基线（入口 fail-fast）+ 读写角色
+    @DBRouter(route = Route.SLAVE)
+    @Select("SELECT * FROM order WHERE user_id = #{userId}")
+    List<Order> findByUser(@Param("userId") Long userId);
 }
 ```
 
@@ -94,11 +102,11 @@ public interface OrderMapper {
 
 分库键取值规则（取不到直接报错，不静默）：
 
-1. 配了 `key`：按参数名/`@Param` 名精确匹配
-2. 没配 `key`：按 `rules` 里的 `shardingKey` 匹配参数；单参数直接取值
-3. 匹配失败 → 抛 `ShardingException`（不做 null 兜底）
-
-> 为什么必须有注解：分库要在取连接之前完成，MyBatis 拦截器执行时连接已取走，只能靠切面在进入 Mapper 方法时取键值。`@DBRouter` 是使用面唯一的必学项。
+1. **语句级**（SQL 触及分片表时）：按该表 `rules.*.db.shardingKey` 从这份参数取值；
+   单参数直接取值。**键名只由配置决定，注解不提供显式指定**
+2. **方法基线**（标注解时）：按 `rules` 里的 `shardingKey` 依次尝试匹配参数；
+   匹配失败 → 进入方法即抛 `ShardingException`
+3. 同一条 SQL 触及多张分片表时，各表落点必须一致，否则报错（跨库 JOIN 不支持）
 
 ## 3. 读写分离：`route` 属性
 

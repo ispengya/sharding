@@ -292,6 +292,46 @@ prepared 分支在**分支会话被 KILL 后**仍出现在 `XA RECOVER` 名册�
 
 ---
 
+## 语义修订：取分片键时机（方法级 → 语句级）
+
+**日期：** 2026-11-08
+
+### 背景
+
+- 取分库键原在 `RouteAspect` 方法入口完成，与"路由事实 = 这条 SQL + 这份参数"存在四处错位：
+  ① holder 作用域是方法、路由事实是语句（方法内直通表跟着方法路由走）；
+  ② 嵌套 `@DBRouter` 互踩——内层 `finally` 无条件清空，外层后续语句静默落 primary；
+  ③ 切面反射方法参数与 MyBatis `parameterObject` 两套取值实现，语义靠人肉对齐；
+  ④ **不标注解但 SQL 碰分片表 → 静默落 primary 错路由**（写错分片/读空，最严重）。
+- usage.md 旧文案"连接已取走"是 `AbstractRoutingDataSource` 时代的理由；
+  `ShardingConnection` 改为按语句懒选池后，`StatementHandler.prepare`（拦截器）
+  先于 `connection.prepareStatement`（选池）执行——语句级取键时机成立。
+
+### 决策（混合模型：方法基线 ⊕ 语句修正）
+
+- **语句级为主**：`ShardingRewriter.plan()` 一次解析产出「改写 + 分库落点」——
+  按 SQL 触及的表 + `parameterObject` 现场计算（`DbRouteCollectVisitor`），
+  未标注解也路由；同一条 SQL 多张分片表落点必须一致（跨库 JOIN 不支持）；
+  缺分库键 / SQL 解析失败一律抛错（不静默兜底）；无规则走不解析的直通快路径
+- **方法基线保留**（`RouteAspect`）：覆盖三类注解契约——无表 SQL（`SELECT @@server_id`
+  读写分离探针）、无规则表沿用方法路由、入口 fail-fast（进方法即校验分库键）
+- **键名只由配置决定**：语句级用该表 `rules.*.db.shardingKey`，方法基线按已配置分库键
+  依次尝试——注解**不提供显式指定**，`@DBRouter` 原 `key=` 属性移除
+- **上下文嵌套安全**：切面与拦截器一律保存/恢复（不再无条件 clear）；
+  移除死代码 `tbHolder`；取值原语统一为 `ShardingKeyExtractor`
+  （方法参数规范化成 parameterObject 后与语句级共用）
+- 注解语义从"路由触发器"降级为"方法级元数据"：基线 / `route`
+
+### 问题与修复
+
+| # | 问题 | 原因 | 修复方式 | 状态 |
+|---|---|---|---|---|
+| 1 | 全新初始化时 slave 起不来：`/bin/bash^M: bad interpreter` | `core.autocrlf=true` 把 `slave-init.sh` 检出为 CRLF，Linux 容器执行 shebang 失败；旧容器从未重建所以未暴露 | 工作区转 LF + 新增 `.gitattributes`（`*.sh text eol=lf`） | 已修复 |
+| 2 | `StatementPlanRoutingTest` 显式键用例报错 | 测试 SQL 碰 `t_order` 但参数缺分表键 `orderId`（改写期正确报错） | 测试补参数 | 已修复 |
+| 3 | `ThreePhaseCommitStrategyTest.preCommitStageTimeout` 偶发失败 | 阶段超时与失败回滚两条路径竞态，各记一次 `ROLLED_BACK`（与本次改动无关的既有偶发） | 重跑即过；后续单独修 | 已知偶发 |
+
+---
+
 ## 阶段 8：收尾与发布
 
 **日期：** 未开始

@@ -68,13 +68,13 @@ sharding:
 @Mapper
 public interface OrderMapper {
 
-    // 裸注解：按 rules 中的 shardingKey 自动取键值
+    // 不标注解也自动路由（SQL 碰分片表即按表规则取键）；标注解则进入方法即校验分库键
     @DBRouter
-    @Select("SELECT * FROM order WHERE id = #{id}")
-    Order getById(@Param("id") Long id);
+    @Select("SELECT * FROM order WHERE user_id = #{userId} AND id = #{id}")
+    Order getById(@Param("userId") Long userId, @Param("id") Long id);
 
-    // 参数多时显式指定分库键；route = SLAVE 显式读从库
-    @DBRouter(key = "userId", route = Route.SLAVE)
+    // route = SLAVE 显式读从库（分库键名由 rules 配置决定，注解不做显式指定）
+    @DBRouter(route = Route.SLAVE)
     @Select("SELECT count(*) FROM order WHERE user_id = #{userId}")
     long countByUser(@Param("userId") Long userId);
 }

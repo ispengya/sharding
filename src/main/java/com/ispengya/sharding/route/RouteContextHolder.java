@@ -8,7 +8,6 @@ public class RouteContextHolder {
 
     private static final ThreadLocal<String> dbHolder = new ThreadLocal<>();
     private static final ThreadLocal<Route> routeHolder = new ThreadLocal<>();
-    private static final ThreadLocal<String> tbHolder = new ThreadLocal<>();
 
     public static void setDbHolder(String dataSource) {
         dbHolder.set(dataSource);
@@ -35,17 +34,5 @@ public class RouteContextHolder {
 
     public static void clearRoute() {
         routeHolder.remove();
-    }
-
-    public static void setTbHolder(String dataSource) {
-        tbHolder.set(dataSource);
-    }
-
-    public static String getTbHolder() {
-        return tbHolder.get();
-    }
-
-    public static void clearTbHolder() {
-        tbHolder.remove();
     }
 }

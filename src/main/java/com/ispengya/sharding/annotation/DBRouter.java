@@ -7,20 +7,27 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * 标记于 Mapper 接口或方法（方法级优先于类级，标注到普通 Bean 启动即报错）：
- * 触发分库路由切面，方法进入时解析分库键与读写角色并写入路由上下文，结束时清理。
+ * 标记于 Mapper 接口或方法（方法级优先于类级，标注到普通 Bean 启动即报错）。
+ *
+ * <p>分库路由的事实依据是"这条 SQL + 这份参数"：SQL 触及分片表时由语句级路由
+ * （ShardingRewriter.plan）按表规则的 shardingKey 现场计算，<b>不依赖本注解</b>——
+ * 未标注解的 Mapper 方法写/读分片表同样正确落库。</p>
+ *
+ * <p>本注解提供两件方法级的事情：</p>
+ * <ul>
+ *   <li><b>方法基线</b>：进入方法时按参数预算一次分库落点，供无表 SQL
+ *       （如 {@code SELECT @@server_id}）与无规则表的语句沿用；同时入口即校验
+ *       分库键可提取（取不到立刻报错，不等到 SQL 执行）</li>
+ *   <li><b>route</b>：读写角色（SLAVE 走从库，活动事务内禁用）</li>
+ * </ul>
+ *
+ * <p>取键名固定来自配置：语句级用该表 {@code rules.*.db.shardingKey}，
+ * 方法基线按已配置的分库键依次尝试——注解上不提供显式指定。</p>
  */
 @Target({ElementType.METHOD, ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
 public @interface DBRouter {
-
-    /**
-     * 分库键的参数名（@Param 名或字段名）。
-     * 留空时按已配置分库规则的 shardingKey 依次尝试提取；均取不到值则抛出异常。
-     * 未配置任何分库规则时不需要分库键（db 直通 primary，仅按 route 做组内角色路由）。
-     */
-    String key() default "";
 
     /**
      * 读写角色（方法级 > 类级）：默认 MASTER；SLAVE 走从库且不得处于活动事务内。

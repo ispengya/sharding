@@ -39,10 +39,7 @@
         <version>2.1.3.RELEASE</version>
     </parent>
 
-    <properties>
-        <gpg.keyname>E0D0D22DBB41E745173E30AC356D8913E73CC2F8</gpg.keyname>
-        <gpg.passphrase.file>${user.home}/.m2/central-gpg-passphrase</gpg.passphrase.file>
-    </properties>
+    <!-- GPG 签名参数不写入 POM：发布时经命令行 -Dgpg.keyname / -Dgpg.passphrase.file 提供，见 RELEASING.md -->
 
     <dependencies>
         <dependency>

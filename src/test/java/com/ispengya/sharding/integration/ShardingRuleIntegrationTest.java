@@ -3,6 +3,7 @@ package com.ispengya.sharding.integration;
 import com.ispengya.sharding.algorithm.HashShardingAlgorithm;
 import com.ispengya.sharding.algorithm.ShardingContext;
 import com.ispengya.sharding.exception.ShardingException;
+import com.ispengya.sharding.integration.mapper.OrderMapper;
 import com.ispengya.sharding.integration.mapper.PlainMapper;
 import com.ispengya.sharding.integration.model.TOrder;
 import com.ispengya.sharding.integration.model.TPlain;
@@ -37,10 +38,12 @@ public class ShardingRuleIntegrationTest {
     private static final String PASSWORD = "root";
 
     private static final String DDL_PLAIN =
-            "CREATE TABLE IF NOT EXISTS t_plain (id VARCHAR(64) PRIMARY KEY)";
+            "CREATE TABLE IF NOT EXISTS t_plain (id VARCHAR(64) PRIMARY KEY, note VARCHAR(255))";
 
     @Autowired
     private PlainMapper plainMapper;
+    @Autowired
+    private OrderMapper orderMapper;
     @Autowired
     private TxService txService;
 
@@ -77,6 +80,20 @@ public class ShardingRuleIntegrationTest {
     }
 
     @Test
+    public void unannotatedShardedSqlRoutesAutomatically() throws Exception {
+        // 方案 B 核心行为：不标 @DBRouter，SQL 碰 t_order 也按表规则路由到正确分片
+        String ds1User = findValueForDb("ds_1");
+        String table = algorithm.calculateTable(ShardingContext.forTable("order-auto", "t_order", 2, null));
+        execute(URL_0, "DELETE FROM " + table + " WHERE id = 'm-auto'");
+        execute(URL_1, "DELETE FROM " + table + " WHERE id = 'm-auto'");
+
+        orderMapper.insertAutoRouted(new TOrder("m-auto", ds1User, "order-auto"));
+
+        assertEquals(1, countWhere(URL_1, table, "m-auto"));
+        assertEquals(0, countWhere(URL_0, table, "m-auto"));
+    }
+
+    @Test
     public void missingShardingKeyThrowsAtCallTime() {
         // TPlain 无 userId 字段 → 分库键提取失败 → 调用即抛异常（不静默）
         try {
@@ -109,9 +126,15 @@ public class ShardingRuleIntegrationTest {
     }
 
     private int count(String url, String table) throws Exception {
+        return countWhere(url, table, null);
+    }
+
+    private int countWhere(String url, String table, String id) throws Exception {
+        String sql = id == null ? "SELECT COUNT(*) FROM " + table
+                : "SELECT COUNT(*) FROM " + table + " WHERE id = '" + id + "'";
         try (Connection conn = DriverManager.getConnection(url, USER, PASSWORD);
              Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + table)) {
+             ResultSet rs = st.executeQuery(sql)) {
             rs.next();
             return rs.getInt(1);
         }

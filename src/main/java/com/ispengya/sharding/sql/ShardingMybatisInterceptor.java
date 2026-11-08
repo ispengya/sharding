@@ -1,9 +1,6 @@
 package com.ispengya.sharding.sql;
 
-import com.alibaba.druid.DbType;
-import com.alibaba.druid.sql.SQLUtils;
-import com.alibaba.druid.sql.ast.SQLStatement;
-import com.alibaba.druid.util.JdbcConstants;
+import com.ispengya.sharding.route.RouteContextHolder;
 import org.apache.ibatis.executor.statement.StatementHandler;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.plugin.Interceptor;
@@ -15,18 +12,23 @@ import org.apache.ibatis.reflection.MetaObject;
 import org.apache.ibatis.reflection.SystemMetaObject;
 
 import java.sql.Connection;
-import java.util.List;
 import java.util.Properties;
 
 /**
- * MyBatis 拦截器：在 StatementHandler.prepare 之前用 Druid 解析 SQL，并委托 ShardingRewriter 完成分表改写。
+ * MyBatis 拦截器：在 StatementHandler.prepare 里、选池（ShardingConnection.prepareStatement）
+ * 之前完成两件事——
+ * <ul>
+ *   <li>调用 ShardingRewriter.plan 生成语句计划：分表改写 + 语句级分库路由
+ *       （按这条 SQL 触及的表 + 这份参数现场计算，未标注解也路由）</li>
+ *   <li>把计划的分库落点写入路由上下文覆盖方法基线，proceed（含选池）结束后恢复</li>
+ * </ul>
+ * 时机关键：此刻拿到的 Connection 还是逻辑连接，物理池在 proceed 内的
+ * connection.prepareStatement 才选定——所以语句级取键来得及。
  */
 @Intercepts({
         @Signature(type = StatementHandler.class, method = "prepare", args = {Connection.class, Integer.class})
 })
 public class ShardingMybatisInterceptor implements Interceptor {
-
-    private static final DbType DB_TYPE = JdbcConstants.MYSQL;
 
     private final ShardingRewriter shardingRewriter;
 
@@ -40,25 +42,26 @@ public class ShardingMybatisInterceptor implements Interceptor {
         MetaObject metaObject = SystemMetaObject.forObject(statementHandler);
 
         BoundSql boundSql = statementHandler.getBoundSql();
-        String originalSql = boundSql.getSql();
-        Object parameterObject = boundSql.getParameterObject();
+        ShardingRewriter.StatementPlan plan = shardingRewriter.plan(
+                boundSql.getSql(), boundSql.getParameterObject());
+        metaObject.setValue("delegate.boundSql.sql", plan.getSql());
 
-        String newSql = rewriteSql(originalSql, parameterObject);
-        metaObject.setValue("delegate.boundSql.sql", newSql);
-
-        return invocation.proceed();
-    }
-
-    private String rewriteSql(String originalSql, Object param) {
+        // 分库落点按语句覆盖方法基线；未触及分库规则表则保持原上下文（基线或 primary）
+        String previousDb = RouteContextHolder.getDbHolder();
+        boolean overridden = plan.getDbRoute() != null;
+        if (overridden) {
+            RouteContextHolder.setDbHolder(plan.getDbRoute());
+        }
         try {
-            List<SQLStatement> stmts = SQLUtils.parseStatements(originalSql, DB_TYPE);
-            if (stmts.isEmpty()) return originalSql;
-
-            SQLStatement stmt = stmts.get(0);
-            stmt.accept(new ShardingTableVisitor(param, shardingRewriter));
-            return SQLUtils.toSQLString(stmt, DB_TYPE);
-        } catch (Exception e) {
-            return originalSql;
+            return invocation.proceed();
+        } finally {
+            if (overridden) {
+                if (previousDb == null) {
+                    RouteContextHolder.clearDbHolder();
+                } else {
+                    RouteContextHolder.setDbHolder(previousDb);
+                }
+            }
         }
     }
 
@@ -68,5 +71,6 @@ public class ShardingMybatisInterceptor implements Interceptor {
     }
 
     @Override
-    public void setProperties(Properties properties) {}
+    public void setProperties(Properties properties) {
+    }
 }
