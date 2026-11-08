@@ -1,28 +1,21 @@
-# My-Sharding-Service
+# my-sharding-service
 
-一个轻量级的分库分表中间件，基于Spring Boot + MyBatis实现，支持自定义分片策略，使用简单，易于扩展。
+基于 Spring Boot + MyBatis 的分库分表中间件：分片路由、读写分离、跨数据源事务（LOCAL / 2PC / 3PC）一体，配置驱动、注解即用。
+
+> **状态：开发中，尚未发布。** 完整使用说明见 **[docs/usage.md](docs/usage.md)**（以该文档为验收口径）；设计与实现过程见 [docs/plan.md](docs/plan.md) / [docs/steps.md](docs/steps.md) / [docs/journal.md](docs/journal.md)。
 
 ## 特性
 
-- 支持分库分表
-- 支持自定义分片策略
-- 支持注解和配置方式
-- 基于Druid SQL解析
-- 支持动态数据源切换
-- 支持复杂SQL（JOIN、子查询等）
+- **分库分表**：按逻辑表配置规则（`rules`），无规则的表落 primary 直通；SQL 自动改写为物理表名（基于 Druid 解析，支持 JOIN）
+- **读写分离**：`slaves` 配置即开启，`@DBRouter(route = SLAVE)` 显式走从库，组内 `round_robin` / `random` 负载均衡
+- **自定义分片算法**：实现 `ShardingAlgorithm` 并标注 `@Algorithm("名字")`，配置按名引用
+- **跨数据源事务**：逻辑连接 1:N 分发 + 三种协调模式——`Mode.LOCAL`（循环提交+重试+明细）、`Mode.XA`（真两阶段，事务日志 + 启动恢复）、`Mode.THREE_PC`（三阶段 + 阶段超时）
+- **使用规则显式校验**：跨分片写必须标 `@TxMode`、禁用 `REQUIRES_NEW`/`NESTED`、事务内禁 `route = SLAVE`——违规调用即报错，不静默
+- **启动期失败快**：数据源/算法/负载均衡引用、`@DBRouter` 标注位置等错误在启动时抛出
 
 ## 快速开始
-### 1. 克隆项目
-```shell
-git clone https://github.com/ispengya/sharding.git
-```
 
-### 2. 本地打包
-```shell
-mvn clean install
-```
-
-### 3. 引入依赖
+### 1. 引入依赖
 
 ```xml
 <dependency>
@@ -32,197 +25,143 @@ mvn clean install
 </dependency>
 ```
 
-### 4. 配置文件
+### 2. 配置
 
 ```yaml
 sharding:
-  # 主数据源配置
-  primary: ds_1
-  
-  # 数据源配置
-  dataSources:
-    ds_1:
-      url: jdbc:mysql://localhost:3306/db_1
-      username: root
-      password: root
-      driverClassName: com.mysql.cj.jdbc.Driver
-      # 连接池配置
-      connection:
-        initialSize: 5        # 初始连接数
-        minIdle: 5           # 最小空闲连接
-        maxActive: 20        # 最大活动连接
-        maxWait: 60000       # 获取连接等待超时时间
-        timeBetweenEvictionRunsMillis: 60000  # 空闲连接检查时间
-        minEvictableIdleTimeMillis: 300000    # 连接最小生存时间
-        validationQuery: SELECT 1             # 连接检查SQL
-        testWhileIdle: true                  # 空闲时检查连接
-        testOnBorrow: false                  # 获取连接时检查
-        testOnReturn: false                  # 归还连接时检查
-    
-    ds_2:
-      url: jdbc:mysql://localhost:3306/db_2
-      # ... 其他配置同上
-  
-  # 分库规则配置
-  dbRule:
-    shardingKey: userId      # 分片键
-    dbCount: 2              # 数据库数量
-    strategyKey: hash       # 分片策略标识
-    strategyClass: com.ispengya.sharding.strategy.HashShardingStrategy  # 策略实现类
-  
-  # 分表规则配置
-  tableRules:
-    order:                  # 逻辑表名
-      shardingKey: orderId  # 分片键
-      tableCount: 4         # 每个库的表数量
-      strategyKey: hash     # 分片策略标识
-      strategyClass: com.ispengya.sharding.strategy.HashShardingStrategy  # 策略实现类
-    user:                   # 另一个表的分片规则
-      shardingKey: userId
-      tableCount: 2
-      strategyKey: hash
-      strategyClass: com.ispengya.sharding.strategy.HashShardingStrategy
+  primary: ds_1                     # 未配置分片规则的逻辑表一律落 primary
+
+  dataSources:                      # 逻辑数据源组
+    ds_1:                           # 配了 slaves 即开启读写分离
+      master:
+        url: jdbc:mysql://localhost:3306/db_1
+        username: root
+        password: root
+        driverClassName: com.mysql.cj.jdbc.Driver
+        connection:                 # 节点级连接池参数，不写用内置默认
+          initialSize: 5
+          maxActive: 20
+      slaves:                       # 每个从库连接池独立配置
+        - url: jdbc:mysql://localhost:3307/db_1
+          username: root
+          password: root
+      loadBalance: round_robin      # 从库间均衡：round_robin | random
+    ds_2:                           # 不配 slaves → 读写同一个库
+      master:
+        url: jdbc:mysql://localhost:3306/db_2
+        username: root
+        password: root
+
+  rules:                            # 可选：按逻辑表配置；不配置 = 不分片
+    order:
+      db:
+        databases: [ds_1, ds_2]     # 分片范围（即 dataSources 的 key）
+        shardingKey: userId         # 分库键
+        algorithm: hash             # 内置 hash / range_month / range_day，或自定义算法名
+      table:
+        shardingKey: orderId        # 分表键（可与分库键不同）
+        algorithm: hash
+        tableCount: 8
 ```
 
-### 5. 使用方式
-
-#### 5.1 注解方式
+### 3. 代码
 
 ```java
 @Mapper
-public interface UserMapper {
-    @DBRouter    // 添加分库注解
-    @Insert("INSERT INTO user (id, username) VALUES (#{id}, #{username})")
-    int insert(User user);
-    
+public interface OrderMapper {
+
+    // 裸注解：按 rules 中的 shardingKey 自动取键值
     @DBRouter
-    @Select("SELECT * FROM user WHERE id = #{id}")
-    User selectById(@Param("id") Integer id);
-    
-    @DBRouter
-    @Select("SELECT o.user_id FROM user u LEFT JOIN order o on u.username = o.username where u.username = #{username}")
-    Integer getUserIdByUsername(@Param("username") String username);
+    @Select("SELECT * FROM order WHERE id = #{id}")
+    Order getById(@Param("id") Long id);
+
+    // 参数多时显式指定分库键；route = SLAVE 显式读从库
+    @DBRouter(key = "userId", route = Route.SLAVE)
+    @Select("SELECT count(*) FROM order WHERE user_id = #{userId}")
+    long countByUser(@Param("userId") Long userId);
 }
 ```
 
-## 分片策略
-
-### 1. 默认分片策略
-
-系统默认提供了两种分片策略：
-
-1. **Hash分片策略**（默认）
 ```java
-// 默认的hash分片实现
-public class HashShardingStrategy implements DBShardingStrategy {
+@Service
+public class OrderService {
+
+    @Transactional                     // 单数据源写：原生强一致，无需标注
+    public void create(Order order) { ... }
+
+    @TxMode(Mode.LOCAL)                // 跨分片写：必须标注协调模式
+    @Transactional
+    public void placeOrder(Order a, Order b) { ... }
+
+    @TxMode(Mode.XA)                   // 资金类强一致：2PC + 事务日志 + 启动恢复
+    @Transactional
+    public void settle(Trade trade) { ... }
+}
+```
+
+## 自定义分片算法
+
+```java
+@Algorithm("rangeMonth")              // value 即配置里的 algorithm 引用名
+public class RangeMonthShardingAlgorithm implements ShardingAlgorithm {
     @Override
-    public String shard(DBShardingRule rule, String shardingValue) {
-        int size = rule.getDbCount() * rule.getTableCount();
-        int idx = (size - 1) & (shardingValue.hashCode() ^ (shardingValue.hashCode() >>> 16));
-        int dbIdx = idx / rule.getTableCount() + 1;
-        return "ds_" + dbIdx;
+    public String calculateDb(ShardingContext ctx) {
+        return ...;                   // 返回 dataSources 中的 key
+    }
+
+    @Override
+    public String calculateTable(ShardingContext ctx) {
+        return ctx.getLogicTableName() + "_" + ...;   // 返回物理表名
     }
 }
 ```
 
-### 2. 自定义分片策略
-
-1. **实现分片策略接口**
-```java
-public class CustomShardingStrategy implements DBShardingStrategy {
-    @Override
-    public String shard(DBShardingRule rule, String shardingValue) {
-        // 自定义分片逻辑
-        return "ds_" + calculateDbIndex(shardingValue);
-    }
-}
-```
-
-2. **配置文件中指定策略**
 ```yaml
 sharding:
-  dbRule:
-    shardingKey: userId
-    dbCount: 2
-    strategyKey: custom    # 策略标识
-    strategyClass: com.example.CustomShardingStrategy  # 策略全限定类名
+  rules:
+    payment:
+      db:
+        databases: [ds_1, ds_2]
+        shardingKey: tradeDate
+        algorithm: rangeMonth         # 按 @Algorithm 的 value 引用
 ```
 
-## 配置参数说明
+类需位于应用组件扫描范围内；内置算法：`hash`（两侧可用）、`range_month`（仅分库）、`range_day`（仅分表）。
 
-### 1. 数据源配置
+## 跨数据源事务规则速查
 
-| 参数 | 说明 | 必填 | 默认值 |
-|------|------|------|--------|
-| url | 数据库连接URL | 是 | - |
-| username | 数据库用户名 | 是 | - |
-| password | 数据库密码 | 是 | - |
-| driverClassName | 数据库驱动类 | 否 | com.mysql.cj.jdbc.Driver |
+| 场景 | 要求 |
+|---|---|
+| 单数据源写 | 无需 `@TxMode`，原生事务 |
+| 跨数据源写 | 入口方法必须 `@TxMode(LOCAL/XA/THREE_PC)`，否则调用时报错回滚 |
+| 跨数据源只读 | 无需标注 |
+| 传播行为 | 跨数据源事务仅支持 `REQUIRED`（`REQUIRES_NEW`/`NESTED` 报错） |
+| `route = SLAVE` | 活动事务内使用报错；该组无 slaves 时降级走主库 |
+| XA / 3PC 事务日志 | 表 `sharding_tx_log` 由框架在 primary 自动创建；启动时自动恢复悬决事务 |
 
-### 2. 连接池配置
+模式选择：一般业务 `LOCAL`（无原子性，失败靠明细日志对账）；要求强一致用 `XA`（推荐）或 `THREE_PC`。
 
-| 参数 | 说明 | 必填 | 默认值 |
-|------|------|------|--------|
-| initialSize | 初始连接数 | 否 | 5 |
-| minIdle | 最小空闲连接 | 否 | 5 |
-| maxActive | 最大活动连接 | 否 | 20 |
-| maxWait | 获取连接等待超时时间 | 否 | 60000 |
-| timeBetweenEvictionRunsMillis | 空闲连接检查时间 | 否 | 60000 |
-| minEvictableIdleTimeMillis | 连接最小生存时间 | 否 | 300000 |
-| validationQuery | 连接检查SQL | 否 | SELECT 1 |
-| testWhileIdle | 空闲时检查连接 | 否 | true |
-| testOnBorrow | 获取连接时检查 | 否 | false |
-| testOnReturn | 归还连接时检查 | 否 | false |
+## 构建与测试
 
-### 3. 分片规则配置
+- 构建 JDK：**8**（`scripts/test.sh` 会自动切换本机 JDK）
+- 单测 + 集成测试（需 Docker，一键起真实 MySQL 三节点：2 主分库 + 1 从读写分离）：
 
-| 参数 | 说明 | 必填 | 默认值 |
-|------|------|------|--------|
-| shardingKey | 分片键 | 是 | - |
-| dbCount | 数据库数量 | 是 | - |
-| tableCount | 每个库的表数量 | 是 | - |
-| strategyKey | 分片策略标识 | 是 | hash |
-| strategyClass | 策略实现类的全限定名 | 否 | 默认策略 |
+```shell
+bash scripts/test.sh          # 起环境 → 等健康 → mvn test
+mvn test                      # 无 Docker 时只跑单测需排除集成：
+mvn test -Dtest='!*IntegrationTest'
+```
+
+当前测试规模：158 用例（单测 + 真实 MySQL 集成），覆盖分片路由、读写分离、事务三模式与崩溃恢复。
 
 ## 注意事项
 
-1. **分片键选择**：
-    - 尽量选择分布均匀的字段
-    - 避免频繁变化的字段
-    - 考虑业务查询场景
+- **分片键**：选择分布均匀、查询常带的字段；`hash` 掩码取模建议分片数为 2 的幂次方
+- **跨库 JOIN / 跨库查询**：不支持，设计上避免
+- **读己之写**：从库有复制延迟，写后立读请用默认主库或 `route = Route.MASTER`
+- **连接池容量**：跨分片事务会同时持有多个池的连接，`maxActive` 按并发跨分片事务数规划
+- **XA 参与者**：仅主库（事务内禁止路由到从库）；存储引擎需 InnoDB
 
-2. **使用限制**：
-    - 不支持跨库事务
-    - 分片键必须在SQL中存在
-    - 分片数量建议为2的幂次方
-    - 避免跨库JOIN查询
+## 版本
 
-3. **性能优化**：
-    - 合理配置连接池参数
-    - 避免频繁切换数据源
-    - 合理设计分片策略
-
-## 常见问题
-
-1. **Q: 为什么分片键值获取不到？**
-   A: 确保分片键在SQL参数中存在，且名称正确。
-
-2. **Q: 如何支持跨库查询？**
-   A: 建议避免跨库查询，或使用其他方案（如数据同步）。
-
-3. **Q: 分片数量如何选择？**
-   A: 建议选择2的幂次方，便于扩展。
-
-4. **Q: 自定义分片策略不生效？**
-   A: 检查strategyClass配置是否正确，确保类能被Spring容器扫描到。
-
-## 版本历史
-
-- v0.0.1
-    - 支持基础分库分表
-    - 支持自定义分片策略
-    - 支持注解方式使用
-
-## 贡献指南
-
-欢迎提交Issue和Pull Request。
+- `0.0.1`（开发中，未发布）——配置模型、包结构与旧版（`dbRule`/`strategyClass`）完全不兼容，详见 [docs/journal.md](docs/journal.md)
