@@ -1,4 +1,4 @@
-# my-sharding-service
+# sharding
 
 基于 Spring Boot + MyBatis 的分库分表中间件：分片路由、读写分离、跨数据源事务（LOCAL / 2PC / 3PC）一体，配置驱动、注解即用。
 
@@ -20,7 +20,7 @@
 ```xml
 <dependency>
     <groupId>com.ispengya</groupId>
-    <artifactId>my-sharding-service</artifactId>
+    <artifactId>sharding</artifactId>
     <version>0.0.1</version>
 </dependency>
 ```
