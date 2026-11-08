@@ -6,6 +6,8 @@ import com.ispengya.sharding.tx.TxCommitStrategy;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.sql.DataSource;
+import javax.sql.XAConnection;
+import javax.sql.XADataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
@@ -80,6 +82,28 @@ public class ShardingDataSource implements DataSource {
                     + "（已注册: " + pools.keySet() + "）");
         }
         return pool.getConnection();
+    }
+
+    /**
+     * 从物理节点池取 XA 连接（Mode.XA 分支开启用；池须为 XADataSource）
+     */
+    public XAConnection fetchXaConnection(String nodeKey) throws SQLException {
+        DataSource pool = pools.get(nodeKey);
+        if (pool == null) {
+            throw new ShardingException("路由到未注册的物理节点: " + nodeKey
+                    + "（已注册: " + pools.keySet() + "）");
+        }
+        if (!(pool instanceof XADataSource)) {
+            throw new ShardingException("节点 " + nodeKey + " 的连接池不支持 XA（需要 XADataSource）");
+        }
+        return ((XADataSource) pool).getXAConnection();
+    }
+
+    /**
+     * 按物理节点 key 取池（恢复裁决用）
+     */
+    public DataSource getPool(String nodeKey) {
+        return pools.get(nodeKey);
     }
 
     /**

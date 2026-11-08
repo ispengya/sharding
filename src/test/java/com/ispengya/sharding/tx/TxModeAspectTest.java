@@ -2,6 +2,7 @@ package com.ispengya.sharding.tx;
 
 import com.ispengya.sharding.annotation.Mode;
 import com.ispengya.sharding.annotation.TxMode;
+import com.ispengya.sharding.tx.coordinator.TransactionLog;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.junit.After;
@@ -54,8 +55,16 @@ public class TxModeAspectTest {
     private TxModeAspect aspect;
 
     @Before
-    public void setUp() {
-        aspect = new TxModeAspect();
+    public void setUp() throws Exception {
+        // 日志表校验用内存桩池：CREATE/探测语句直接成功
+        javax.sql.DataSource stubPool = mock(javax.sql.DataSource.class);
+        java.sql.Connection stubConnection = mock(java.sql.Connection.class);
+        java.sql.Statement stubStatement = mock(java.sql.Statement.class);
+        when(stubPool.getConnection()).thenReturn(stubConnection);
+        when(stubConnection.createStatement()).thenReturn(stubStatement);
+        when(stubStatement.executeQuery(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(mock(java.sql.ResultSet.class));
+        aspect = new TxModeAspect(new TransactionLog(stubPool));
         TxContextHolder.clearMode();
         TransactionSynchronizationManager.setActualTransactionActive(false);
     }

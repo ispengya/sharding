@@ -158,15 +158,16 @@ com.ispengya.sharding
 
 **目标：强一致模式，含协调者与故障恢复。**
 
-- [ ] 参与者 prepare：对 enlist 的各分片物理连接执行 prepare 语义（XA 连接包装或本地两阶段模拟，实现时定其一并记录到本文档）
-- [ ] `tx/coordinator/Coordinator`：收集 prepare 结果 → 全部成功 commit，任一失败全部 rollback
-- [ ] 事务日志持久化：状态机 `BEGIN → PREPARED → COMMITTED / ROLLED_BACK`（表结构落在 primary 数据源）
-- [ ] 启动恢复：启动扫描 `PREPARED` 态日志，续做 commit/rollback
-- [ ] `TwoPhaseCommitStrategy` 接入 SPI
+- [x] 参与者 prepare：**决策为真 XA（`XAResource` 协议），不做本地两阶段模拟**——本地模拟下参与者是普通未提交事务，协调者进程死亡即随会话回滚，PREPARED 承诺无法兑现；真 XA 的 prepared 分支以 in-doubt 持久存活于 InnoDB，恢复才有现场。池统一换 `DruidXADataSource`（继承 `DruidDataSource`，池参数不变），分支在 `ShardingConnection` 首次取物理连接时 `XA START`（先于任何 SQL）
+- [x] `tx/coordinator/Coordinator`：收集 prepare 结果 → 全部成功 commit，任一失败全部 rollback；commit 中途失败日志保持 PREPARED 交恢复兑现
+- [x] 事务日志持久化：状态机 `BEGIN → PREPARED → COMMITTED / ROLLED_BACK`（表 `sharding_tx_log` 落 primary 数据源，utf8mb4，**框架自动新建**）
+- [x] 日志表校验：`@TxMode(XA)` 入口即 `CREATE TABLE IF NOT EXISTS` + 字符集兼容转换，失败附 DDL 报错（无建表权限但表已存在则放行）；恢复扫描遇表不存在静默跳过（未用 XA 的应用零负担）
+- [x] 启动恢复：`ContextRefreshedEvent` 扫描 `PREPARED`（presumed commit）/`BEGIN`（presumed abort）日志，按 `globalId+节点key` 重建 Xid 对参与者 `XA RECOVER` 名册补裁决；参与者缺失/裁决失败保留非终态待下次重试
+- [x] `TwoPhaseCommitStrategy` 接入 SPI（prepare/commit/rollback 全委托 Coordinator；XA 分支必须走完整生命周期，无跳日志的快速路径）
 
-**单测：** 协调状态机全部迁移、日志读写、恢复决策（mock 日志注入各状态）、prepare 失败裁决
-**集成：** ① 全部 prepare 成功 → 全部提交 ② 任一 prepare 失败 → 全部回滚 ③ 模拟协调者宕机（PREPARED 日志留下）→ 重启后恢复到一致状态
-**出口：** 阶段 0~5 回归全绿 + 恢复用例通过
+**单测：** 协调状态机全部迁移与 prepare 失败裁决（`CoordinatorTest` 8）、恢复决策六路（`TransactionRecoveryListenerTest` 6，mock 日志注入各状态）、Xid 确定性重建
+**集成：** ① 跨分片 XA 提交两行同见 + 日志 COMMITTED + 日志表框架新建 ② 注入 prepare 失败 → 两分片全回滚 + 日志 ROLLED_BACK ③ 模拟协调者宕机（PREPARED 日志留下、强杀分支会话）→ `XA RECOVER` 验证 in-doubt 留存 → 全新装配启动恢复 → 数据提交、日志 COMMITTED、名册清空
+**出口（2026-11-08 达成）：阶段 0~5 回归全绿 + 恢复用例通过，`mvn test` 140 用例全绿**
 
 ## 阶段 7：3PC（`Mode.THREE_PC`）
 

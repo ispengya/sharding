@@ -4,11 +4,16 @@ import com.ispengya.sharding.annotation.Mode;
 import com.ispengya.sharding.exception.ShardingException;
 import com.ispengya.sharding.tx.TxCommitStrategy;
 import com.ispengya.sharding.tx.TxContextHolder;
+import com.ispengya.sharding.tx.coordinator.XidSupport;
 import org.springframework.transaction.NoTransactionException;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import javax.transaction.xa.XAException;
+import javax.transaction.xa.XAResource;
+import javax.transaction.xa.Xid;
 
 import java.sql.Blob;
 import java.sql.CallableStatement;
@@ -50,6 +55,11 @@ public class ShardingConnection implements Connection {
     private final ShardingDataSource dataSource;
     private final Map<String, Connection> physicalConnections = new LinkedHashMap<>();
     private final Set<String> writtenNodeKeys = new LinkedHashSet<>();
+
+    // Mode.XA 分支状态：首条语句取物理连接时 XA START（先于任何 SQL），提交/回滚时收尾
+    private final Map<String, XaBranch> xaBranches = new LinkedHashMap<>();
+    private final Map<String, javax.sql.XAConnection> xaConnections = new LinkedHashMap<>();
+    private String xaGlobalId;
 
     private Boolean autoCommit;
     private Integer transactionIsolation;
@@ -133,11 +143,68 @@ public class ShardingConnection implements Connection {
         checkOpen();
         Connection connection = physicalConnections.get(nodeKey);
         if (connection == null) {
-            connection = dataSource.fetchPhysical(nodeKey);
-            backfill(connection);
+            if (isXaBranchNeeded()) {
+                connection = startXaBranch(nodeKey);
+            } else {
+                connection = dataSource.fetchPhysical(nodeKey);
+                backfill(connection);
+            }
             physicalConnections.put(nodeKey, connection);
         }
         return connection;
+    }
+
+    /**
+     * 需要开启 XA 分支：模式为 XA 且处于活动事务（未开事务时模式不生效，保持普通连接语义）
+     */
+    private boolean isXaBranchNeeded() {
+        return TxContextHolder.getMode() == Mode.XA
+                && TransactionSynchronizationManager.isActualTransactionActive();
+    }
+
+    /**
+     * 取 XA 连接 → 回填事务设置 → XA START（必须先于该节点上的任何 SQL）
+     */
+    private Connection startXaBranch(String nodeKey) throws SQLException {
+        javax.sql.XAConnection xaConnection = dataSource.fetchXaConnection(nodeKey);
+        Connection connection = xaConnection.getConnection();
+        try {
+            backfill(connection);
+            Xid xid = XidSupport.create(xaGlobalId(), nodeKey);
+            XAResource resource = xaConnection.getXAResource();
+            resource.start(xid, XAResource.TMNOFLAGS);
+            xaConnections.put(nodeKey, xaConnection);
+            xaBranches.put(nodeKey, new XaBranch(nodeKey, resource, xid, connection));
+            return connection;
+        } catch (XAException e) {
+            try {
+                xaConnection.close();
+            } catch (SQLException ignore) {
+                // 归还失败不掩盖启动失败
+            }
+            throw new SQLException("XA START 失败（节点 " + nodeKey + "）", e);
+        }
+    }
+
+    private String xaGlobalId() {
+        if (xaGlobalId == null) {
+            xaGlobalId = XidSupport.newGlobalId();
+        }
+        return xaGlobalId;
+    }
+
+    /**
+     * XA 分支表（nodeKey → 分支），供协调者编排；无分支 = 空事务
+     */
+    public Map<String, XaBranch> getXaBranches() {
+        return xaBranches;
+    }
+
+    /**
+     * 本逻辑连接的 XA 全局事务 id（开启过分支才非 null）
+     */
+    public String getXaGlobalId() {
+        return xaGlobalId;
     }
 
     private void backfill(Connection connection) throws SQLException {
@@ -209,6 +276,20 @@ public class ShardingConnection implements Connection {
             }
         }
         clearCrossDatasourceMarkIfAny();
+        // XA 连接归还（与物理连接同底层、close 幂等）；未裁决分支由池复位逻辑处置，
+        // prepared 分支在 MySQL 侧保持 in-doubt 等待恢复
+        for (javax.sql.XAConnection xaConnection : xaConnections.values()) {
+            try {
+                xaConnection.close();
+            } catch (SQLException e) {
+                if (first == null) {
+                    first = e;
+                }
+            }
+        }
+        xaConnections.clear();
+        xaBranches.clear();
+        xaGlobalId = null;
         physicalConnections.clear();
         writtenNodeKeys.clear();
         if (first != null) {
@@ -603,6 +684,16 @@ public class ShardingConnection implements Connection {
             connection.abort(executor);
         }
         clearCrossDatasourceMarkIfAny();
+        for (javax.sql.XAConnection xaConnection : xaConnections.values()) {
+            try {
+                xaConnection.close();
+            } catch (SQLException ignore) {
+                // abort 路径尽力而为
+            }
+        }
+        xaConnections.clear();
+        xaBranches.clear();
+        xaGlobalId = null;
         physicalConnections.clear();
         writtenNodeKeys.clear();
     }

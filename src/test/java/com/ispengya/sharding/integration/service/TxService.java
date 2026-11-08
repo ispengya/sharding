@@ -109,4 +109,14 @@ public class TxService {
         requiringNewService.insertOk(inner);
         throw new IllegalStateException("boom");
     }
+
+    /**
+     * 跨分片写 + @TxMode(XA)：两阶段提交，两行同时可见、日志落 COMMITTED
+     */
+    @TxMode(Mode.XA)
+    @Transactional
+    public void insertTwoShardsXa(TOrder first, TOrder second) {
+        orderMapper.insert(first);
+        orderMapper.insert(second);
+    }
 }

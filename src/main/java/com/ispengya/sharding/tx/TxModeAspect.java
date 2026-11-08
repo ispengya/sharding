@@ -3,6 +3,7 @@ package com.ispengya.sharding.tx;
 import com.ispengya.sharding.annotation.Mode;
 import com.ispengya.sharding.annotation.TxMode;
 import com.ispengya.sharding.exception.ShardingException;
+import com.ispengya.sharding.tx.coordinator.TransactionLog;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -19,13 +20,20 @@ import java.lang.reflect.Method;
  * 位于事务拦截器外层（LOWEST_PRECEDENCE - 1）——入口处事务尚未开启，
  * 故无条件记录模式（帧结束还原；内层再标不覆盖入口值），是否生效由
  * "是否存在活动事务"的消费点（写入校验/提交）决定：
- * 未开事务 → 模式无人消费，不生效也不报错；
- * XA/THREE_PC → 提交时策略未注册，报"尚未实现"。
+ * 未开事务 → 模式无人消费，不生效也不报错。
+ * Mode.XA 入口即校验事务日志表可用（CREATE IF NOT EXISTS，失败附 DDL）——
+ * 在任何业务 SQL 之前失败快。
  */
 @Slf4j
 @Aspect
 @Order(Ordered.LOWEST_PRECEDENCE - 1)
 public class TxModeAspect {
+
+    private final TransactionLog transactionLog;
+
+    public TxModeAspect(TransactionLog transactionLog) {
+        this.transactionLog = transactionLog;
+    }
 
     @Around("(@annotation(com.ispengya.sharding.annotation.TxMode) || @within(com.ispengya.sharding.annotation.TxMode))")
     public Object doApplyMode(ProceedingJoinPoint jp) throws Throwable {
@@ -35,6 +43,10 @@ public class TxModeAspect {
 
         Mode previous = TxContextHolder.getMode();
         if (previous == null) {
+            if (mode == Mode.XA) {
+                // 使用 XA 模式前校验事务日志表（首次触发建表，之后幂等直返）
+                transactionLog.ensureTable();
+            }
             TxContextHolder.setMode(mode);
             log.debug("事务模式记录: {} @ {}", mode, signature(method));
         }

@@ -15,12 +15,17 @@ import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import com.ispengya.sharding.sql.ShardingMybatisInterceptor;
 import com.ispengya.sharding.sql.ShardingRewriter;
 import com.ispengya.sharding.tx.LocalCommitStrategy;
+import com.ispengya.sharding.tx.TwoPhaseCommitStrategy;
 import com.ispengya.sharding.tx.TxCommitStrategy;
 import com.ispengya.sharding.tx.TxModeAspect;
+import com.ispengya.sharding.tx.coordinator.Coordinator;
+import com.ispengya.sharding.tx.coordinator.TransactionLog;
+import com.ispengya.sharding.tx.coordinator.TransactionRecoveryListener;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionFactoryBean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ApplicationContext;
@@ -82,16 +87,34 @@ public class ShardingAutoConfiguration {
         return new DBRouterPlacementValidator();
     }
 
-    // ---------- 事务协调（@TxMode 切面 + 提交策略） ----------
+    // ---------- 事务协调（@TxMode 切面 + 提交策略 + 事务日志 + 启动恢复） ----------
 
     @Bean
-    public TxModeAspect txModeAspect() {
-        return new TxModeAspect();
+    public TxModeAspect txModeAspect(TransactionLog transactionLog) {
+        return new TxModeAspect(transactionLog);
     }
 
     @Bean
     public TxCommitStrategy localCommitStrategy() {
         return new LocalCommitStrategy();
+    }
+
+    @Bean
+    public TransactionLog transactionLog(ObjectProvider<ShardingDataSource> dataSourceProvider) {
+        // 日志表落 primary 主库池；ObjectProvider 惰性取池，打破策略收集的循环依赖
+        String primaryMaster = RouteResolver.masterKey(shardingProperties.getPrimary());
+        return new TransactionLog(() -> dataSourceProvider.getObject().getPool(primaryMaster));
+    }
+
+    @Bean
+    public TxCommitStrategy twoPhaseCommitStrategy(TransactionLog transactionLog) {
+        return new TwoPhaseCommitStrategy(new Coordinator(transactionLog));
+    }
+
+    @Bean
+    public TransactionRecoveryListener transactionRecoveryListener(TransactionLog transactionLog,
+                                                                  ShardingDataSource dynamicDataSource) {
+        return new TransactionRecoveryListener(transactionLog, dynamicDataSource);
     }
 
     // ---------- 数据源与事务 ----------
@@ -104,7 +127,7 @@ public class ShardingAutoConfiguration {
     }
 
     @Bean
-    public DataSource dynamicDataSource(RouteResolver routeResolver, ApplicationContext applicationContext) {
+    public ShardingDataSource dynamicDataSource(RouteResolver routeResolver, ApplicationContext applicationContext) {
         Map<String, ShardingProperties.DataSourceGroup> groups = shardingProperties.getDataSources();
         if (CollectionUtils.isEmpty(groups)) {
             throw new ShardingException("sharding dataSources properties is empty");

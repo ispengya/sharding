@@ -233,13 +233,34 @@
 
 ## 阶段 6：2PC（`Mode.XA`）
 
-**日期：** 未开始
+**日期：** 2026-11-08（当日完成）
+**产出：** 140 用例全绿（前五阶段回归 + 新增 11：协调者 8、恢复决策 6 中的新增、XA 集成 3——含崩溃恢复全链路）
 
-### 问题与修复
+### 实现决策
+
+- **真 XA（`XAResource`）而非本地两阶段模拟**：本地模拟下参与者是普通未提交事务，进程死亡随会话回滚，PREPARED 承诺无法兑现；真 XA 的 prepared 分支在 InnoDB 以 in-doubt 持久存活（断连/崩溃均不回滚），恢复才有现场——这是"强一致"承诺的根基
+- **池统一换 `DruidXADataSource`**（1.2.7，继承 `DruidDataSource`，`DataSourceFactory` 只换实例化一行）：同一池服务 LOCAL（普通 `getConnection`）与 XA（`getXAConnection`）两种模式，避免"用了 XA 才发现池不支持"
+- **分支开启时机**：`ShardingConnection.physicalFor` 在 `mode==XA 且活动事务` 时取 XA 连接 → 回填 → `XA START`（先于该节点任何 SQL）；未开事务时模式不生效、保持普通连接（与 `@TxMode` 不生效语义一致）
+- **Xid 确定性**：`formatId=0x53484152("SHAR")`，gtrid=UUID hex，**bqual=物理节点 key**——恢复时由日志的 globalId+参与者清单直接重建 Xid 匹配名册，无需额外映射表
+- **日志表由框架新建 + 使用时校验**（用户要求）：`@TxMode(XA)` 入口（切面）即 `CREATE TABLE IF NOT EXISTS sharding_tx_log ... utf8mb4`，失败附完整 DDL 报错；"表已预建但无 CREATE 权限"探测放行；恢复扫描遇 42S02 静默跳过——未用 XA 的应用零负担
+- **XA 无单分片跳日志快速路径**：分支一旦开启必须走完整 end/prepare/commit 生命周期，统一落日志保证恢复语义一致（与 LOCAL 的快速路径不同）
+- **循环依赖破解**：`数据源装配收集策略 → 策略依赖日志 → 日志依赖数据源`——`TransactionLog` 池以 `Supplier` 惰性提供（`ObjectProvider` 注入），启动期无环
+- **恢复裁决失败不覆盖终态**：参与者缺失/裁决异常 → 日志保留 PREPARED/BEGIN + detail 记录，下次启动重试；名册中无该分支 → 视为已处理幂等推进
+
+### 过程问题（真 XA 落地踩的坑，全部实测解决）
 
 | # | 问题 | 原因 | 修复方式 | 状态 |
 |---|---|---|---|---|
-| | | | | |
+| 1 | 手工装配测试 XA 分支从未开启，写入变普通未提交事务、行锁拖死后续用例 | `isXaBranchNeeded()` 要求活动事务，手工装配无 Spring 拦截器置位 | 测试显式 `setActualTransactionActive(true)`（与 doBegin 等价）；测试基建补 in-doubt 清理与会话强杀 | 已修复 |
+| 2 | 日志写中文明细报 `Incorrect string value` | 历史表继承库默认 latin1 | DDL 显式 `utf8mb4` + 首次 ensure 时 `ALTER CONVERT` 兼容旧表 | 已修复 |
+| 3 | 恢复报"完成"但分支仍 in-doubt、数据没提交 | **Connector/J `XAResource.recover(TMNOFLAGS)` 返回空列表**（探针实测），扫描标志才返回 | `recover(TMSTARTRSCAN\|TMENDRSCAN)`；临时探针验证后删除 | 已修复 |
+| 4 | `XA RECOVER` 结果集无 `gtrid/bqual` 列 | MySQL 5.7 列为 `formatID/gtrid_length/bqual_length/data`（data=原始拼接） | 按长度切片 data 还原 gtrid/bqual | 已修复 |
+| 5 | 同一 Statement 上 ResultSet 未关就执行 `XA ROLLBACK` 报错 | JDBC 规范限制 | 先收集回滚语句、关结果集后再执行 | 已修复 |
+| 6 | 崩溃模拟后 tearDown 遗留锁等待 50s 级联失败 | 上轮 in-doubt 未清理 + `pool.close()` 不杀借出中的会话 | setUp 按 formatID 清理遗留 in-doubt；崩溃模拟显式 `KILL` 分支会话（等价进程死亡） | 已修复 |
+
+### 验证语义（集成③实测确认）
+
+prepared 分支在**分支会话被 KILL 后**仍出现在 `XA RECOVER` 名册（InnoDB 持久化 in-doubt）→ 全新连接按 Xid 补 `XA COMMIT` → 数据落库、名册清空——"协调者死了现场还在、重启按日志兑现"全链路成立。
 
 ---
 
