@@ -155,10 +155,12 @@ public class ShardingConnection implements Connection {
     }
 
     /**
-     * 需要开启 XA 分支：模式为 XA 且处于活动事务（未开事务时模式不生效，保持普通连接语义）
+     * 需要开启 XA 分支：模式为 XA/THREE_PC（两者都基于 XA 分支）且处于活动事务
+     * （未开事务时模式不生效，保持普通连接语义）
      */
     private boolean isXaBranchNeeded() {
-        return TxContextHolder.getMode() == Mode.XA
+        Mode mode = TxContextHolder.getMode();
+        return (mode == Mode.XA || mode == Mode.THREE_PC)
                 && TransactionSynchronizationManager.isActualTransactionActive();
     }
 

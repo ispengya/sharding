@@ -15,6 +15,7 @@ import com.ispengya.sharding.rule.ShardingRuleRegistry;
 import com.ispengya.sharding.sql.ShardingMybatisInterceptor;
 import com.ispengya.sharding.sql.ShardingRewriter;
 import com.ispengya.sharding.tx.LocalCommitStrategy;
+import com.ispengya.sharding.tx.ThreePhaseCommitStrategy;
 import com.ispengya.sharding.tx.TwoPhaseCommitStrategy;
 import com.ispengya.sharding.tx.TxCommitStrategy;
 import com.ispengya.sharding.tx.TxModeAspect;
@@ -109,6 +110,11 @@ public class ShardingAutoConfiguration {
     @Bean
     public TxCommitStrategy twoPhaseCommitStrategy(TransactionLog transactionLog) {
         return new TwoPhaseCommitStrategy(new Coordinator(transactionLog));
+    }
+
+    @Bean
+    public TxCommitStrategy threePhaseCommitStrategy(TransactionLog transactionLog) {
+        return new ThreePhaseCommitStrategy(new Coordinator(transactionLog));
     }
 
     @Bean

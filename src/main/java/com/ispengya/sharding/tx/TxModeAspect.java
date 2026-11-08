@@ -43,8 +43,8 @@ public class TxModeAspect {
 
         Mode previous = TxContextHolder.getMode();
         if (previous == null) {
-            if (mode == Mode.XA) {
-                // 使用 XA 模式前校验事务日志表（首次触发建表，之后幂等直返）
+            if (mode == Mode.XA || mode == Mode.THREE_PC) {
+                // 使用带事务日志的模式前校验日志表（首次触发建表，之后幂等直返）
                 transactionLog.ensureTable();
             }
             TxContextHolder.setMode(mode);

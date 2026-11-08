@@ -266,13 +266,29 @@ prepared 分支在**分支会话被 KILL 后**仍出现在 `XA RECOVER` 名册�
 
 ## 阶段 7：3PC（`Mode.THREE_PC`）
 
-**日期：** 未开始
+**日期：** 2026-11-08（当日完成）
+**产出：** 158 用例全绿（前六阶段回归 + 新增 12：协调者 3PC 阶段 3、策略 6、集成 3）
+
+### 实现决策
+
+- **3PC 建立在既有 XA 分支与四态日志之上，零新日志状态**：canCommit 后崩溃 → 日志停 BEGIN → 恢复 presumed abort（正确：投票阶段无承诺）；preCommit 后 → PREPARED → presumed commit——三阶段的崩溃语义恰好被四态状态机完整覆盖
+- **阶段映射**：`canCommit` = BEGIN 登记 + 分支内只读探针（`SELECT /*3pc-canCommit*/ 1`，带标记便于测试注入拒绝/挂起）——投票阶段零持久化承诺；`preCommit` = XA END+PREPARE（与 2PC prepare 共享 `endPrepareAll`）；`commit` 复用 2PC 的 XA COMMIT
+- **超时实现**：阶段调用提交守护线程池 + `Future.get(timeout)` 限时（默认 10s，构造可注入），超时 `cancel(true)` 中断；**裁决按所处阶段**——canCommit/preCommit 超时 → 回滚 ROLLED_BACK，commit 超时 → 日志已 PREPARED → 保持承诺交恢复（不回滚）
+- **协调者超时决策** = 既有启动恢复（PREPARED→补 commit、BEGIN→补 rollback），无需新增机制
+- `Mode.THREE_PC` 与 XA 同走分支开启路径（`isXaBranchNeeded` 扩展为 XA/THREE_PC）；日志表校验同步覆盖
+
+### 已知限制
+
+- 阶段超时的 `cancel(true)` 对**真实 JDBC 阻塞**（套接字挂起）中断无效，滞留线程可能存活至套接字超时——测试用可中断的挂起桩验证裁决逻辑，生产靠恢复兜底（journal 记录）
+- 3PC 经典的"参与者独立超时定时器"（分布式参与者场景）在本架构不适用：参与者与协调者同进程，参与者侧无独立计时器——本实现的超时是**协调者侧阶段限时**，阻塞问题由启动恢复解决
 
 ### 问题与修复
 
 | # | 问题 | 原因 | 修复方式 | 状态 |
 |---|---|---|---|---|
-| | | | | |
+| 1 | `Mode.THREE_PC` 下不开启 XA 分支，写入退化为普通事务 | `isXaBranchNeeded` 只判断 `== Mode.XA` | 扩展为 XA/THREE_PC 双模式 | 已修复 |
+| 2 | 注入的 canCommit 拒绝/挂起不生效，`commit()` 静默成功 | 探针 `executeQuery` 调在 **Statement** 上，包装只代理了 Connection 层 | `createStatement()` 返回值同样包装，语句层拦截标记 SQL | 已修复 |
+| 3 | Mockito `doThrow().when()` 链求值中调用已打桩方法报 UnfinishedStubbing；`anyString()` 匹配不到 null detail | Mockito 桩会话互斥；`anyString` 不匹配 null | setUp 预取 Statement 引用；rollback 路径 verify 改用 `any()` | 已修复 |
 
 ---
 

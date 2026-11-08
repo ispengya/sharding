@@ -119,4 +119,14 @@ public class TxService {
         orderMapper.insert(first);
         orderMapper.insert(second);
     }
+
+    /**
+     * 跨分片写 + @TxMode(THREE_PC)：canCommit→preCommit→commit 三阶段提交
+     */
+    @TxMode(Mode.THREE_PC)
+    @Transactional
+    public void insertTwoShardsThreePc(TOrder first, TOrder second) {
+        orderMapper.insert(first);
+        orderMapper.insert(second);
+    }
 }

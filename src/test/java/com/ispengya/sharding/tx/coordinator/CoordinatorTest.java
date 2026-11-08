@@ -44,29 +44,91 @@ public class CoordinatorTest {
     private Map<String, XaBranch> branches;
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         log = mock(TransactionLog.class);
         coordinator = new Coordinator(log);
         resource1 = mock(XAResource.class);
         resource2 = mock(XAResource.class);
         branches = new LinkedHashMap<>();
         branches.put("ds_0#master", new XaBranch("ds_0#master", resource1,
-                XidSupport.create(GLOBAL_ID, "ds_0#master"), null));
+                XidSupport.create(GLOBAL_ID, "ds_0#master"), probeConnection()));
         branches.put("ds_1#master", new XaBranch("ds_1#master", resource2,
-                XidSupport.create(GLOBAL_ID, "ds_1#master"), null));
+                XidSupport.create(GLOBAL_ID, "ds_1#master"), probeConnection()));
         connection = mock(ShardingConnection.class);
         when(connection.getXaBranches()).thenReturn(branches);
         when(connection.getXaGlobalId()).thenReturn(GLOBAL_ID);
+    }
+
+    /**
+     * canCommit 探针所需的连接桩：executeQuery 恒有结果
+     */
+    private java.sql.Connection probeConnection() throws Exception {
+        java.sql.Connection connection = mock(java.sql.Connection.class);
+        java.sql.Statement statement = mock(java.sql.Statement.class);
+        java.sql.ResultSet resultSet = mock(java.sql.ResultSet.class);
+        when(connection.createStatement()).thenReturn(statement);
+        when(statement.executeQuery(anyString())).thenReturn(resultSet);
+        when(resultSet.next()).thenReturn(true);
+        return connection;
     }
 
     @Test
     public void emptyTransactionIsNoopWithoutLog() throws Exception {
         when(connection.getXaBranches()).thenReturn(new LinkedHashMap<>());
         coordinator.prepare(connection);
+        coordinator.canCommit(connection);
+        coordinator.preCommit(connection);
         coordinator.commit(connection);
         coordinator.rollback(connection);
         verify(log, never()).record(anyString(), anyString(), any(), any());
         verify(log, never()).updateState(anyString(), anyString(), any());
+    }
+
+    // ---------- 3PC 阶段 ----------
+
+    @Test
+    public void canCommitRecordsBeginAndProbesAllBranches() throws Exception {
+        coordinator.canCommit(connection);
+
+        verify(log).record(eq(GLOBAL_ID), eq(TransactionLog.STATE_BEGIN),
+                eq(Arrays.asList("ds_0#master", "ds_1#master")), any());
+        // 两分支各探测一次（仅读，不做 END/PREPARE）
+        for (XaBranch branch : branches.values()) {
+            verify(branch.getConnection()).createStatement();
+            assertEquals(XaBranch.State.STARTED, branch.getState());
+        }
+        verify(resource1, never()).prepare(any());
+        verify(log, never()).updateState(anyString(), anyString(), any());
+    }
+
+    @Test
+    public void canCommitProbeFailureThrowsWithNodeDetail() throws Exception {
+        java.sql.Statement failing = mock(java.sql.Statement.class);
+        java.sql.ResultSet broken = mock(java.sql.ResultSet.class);
+        when(broken.next()).thenThrow(new java.sql.SQLException("probe failed"));
+        when(failing.executeQuery(anyString())).thenReturn(broken);
+        when(branches.get("ds_1#master").getConnection().createStatement()).thenReturn(failing);
+
+        try {
+            coordinator.canCommit(connection);
+            fail("探针失败应当抛出异常");
+        } catch (ShardingException expected) {
+            assertTrue(expected.getMessage().contains("canCommit"));
+            assertTrue(expected.getMessage().contains("ds_1#master"));
+        }
+        // canCommit 阶段不写终态（由策略层决定回滚）
+        verify(log, never()).updateState(anyString(), anyString(), any());
+    }
+
+    @Test
+    public void preCommitEndsPreparesAndWritesPreparedWithoutRecordingBegin() throws Exception {
+        coordinator.preCommit(connection);
+
+        // BEGIN 由 canCommit 负责，preCommit 不重复登记
+        verify(log, never()).record(anyString(), anyString(), any(), any());
+        verify(log).updateState(GLOBAL_ID, TransactionLog.STATE_PREPARED, null);
+        verify(resource1).prepare(any());
+        verify(resource2).prepare(any());
     }
 
     @Test

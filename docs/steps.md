@@ -173,13 +173,14 @@ com.ispengya.sharding
 
 **目标：在 2PC 上加阶段与超时，增量实现。**
 
-- [ ] `canCommit` → `preCommit` → `commit` 三阶段接入协调流程
-- [ ] 超时规则：参与者各阶段超时默认 abort；协调者超时按日志状态决策
-- [ ] `ThreePhaseCommitStrategy` 接入 SPI
+- [x] `canCommit` → `preCommit` → `commit` 三阶段接入协调流程：`Coordinator` 新增 `canCommit`（BEGIN 登记 + 分支内只读探针）与 `preCommit`（END/PREPARE → PREPARED），与 2PC 共享 `endPrepareAll`/`rollback` 等助手；日志状态机复用四态（canCommit 后崩溃 → BEGIN → 恢复 abort，语义正确）
+- [x] 超时规则：`ThreePhaseCommitStrategy` 阶段调用走守护线程池限时——canCommit/preCommit 超时或失败 → 全部回滚 ROLLED_BACK（承诺点未做出，abort 安全）；**commit 超时 → 日志已在 PREPARED，按日志状态决策：保持承诺不回滚，交启动恢复兑现**；协调者侧超时决策即启动恢复（PREPARED→补 commit、BEGIN→补 rollback，阶段 6 已实现）
+- [x] `ThreePhaseCommitStrategy` 接入 SPI（默认阶段超时 10s，可构造注入）
+- [x] `Mode.THREE_PC` 同样基于 XA 分支（`isXaBranchNeeded` 覆盖）；`@TxMode(THREE_PC)` 入口同样校验事务日志表
 
-**单测：** 三阶段状态机、各阶段超时分支
-**集成：** ① 正常三阶段提交 ② 参与者 canCommit 拒绝 → 全回滚 ③ 参与者超时 → 收敛为 abort，无悬挂
-**出口：** 全量回归 + 超时用例通过
+**单测：** 三阶段成功链路、canCommit 拒绝→abort、preCommit 超时→abort（绝不出现 PREPARED）、commit 超时→保持 PREPARED 不回滚（`ThreePhaseCommitStrategyTest` 6、`CoordinatorTest` 扩至 11）
+**集成：** ① 正常三阶段提交（Spring 全上下文，两行落库 + 日志 COMMITTED）② 参与者 canCommit 拒绝 → 全回滚 + 日志 ROLLED_BACK + 无 in-doubt ③ canCommit 阶段挂起超时（300ms）→ 收敛为 abort、名册无悬挂
+**出口（2026-11-08 达成）：全量回归 + 超时用例通过，`mvn test` 158 用例全绿**
 
 ## 阶段 8：收尾与发布
 
