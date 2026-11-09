@@ -89,6 +89,13 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 端到端压测的延迟直方图（仅测试类路径，不进入发布产物） -->
+        <dependency>
+            <groupId>org.hdrhistogram</groupId>
+            <artifactId>HdrHistogram</artifactId>
+            <version>2.1.12</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <profiles>

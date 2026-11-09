@@ -16,6 +16,10 @@ public interface PlainMapper {
     @Insert("INSERT INTO t_plain (id) VALUES (#{id})")
     int insertPlain(TPlain plain);
 
+    /** 性能基座：无规则表直读（不标注解，直通 primary） */
+    @Select("SELECT id FROM t_plain WHERE id = #{id}")
+    String findPlain(@Param("id") String id);
+
     @DBRouter
     @Select("SELECT id FROM t_plain WHERE id = #{id}")
     String routedByPlainWithoutShardingKey(TPlain plain);
