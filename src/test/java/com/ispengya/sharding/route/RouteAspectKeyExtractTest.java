@@ -195,23 +195,26 @@ public class RouteAspectKeyExtractTest {
     }
 
     @Test
-    public void nestedInvocationRestoresOuterContext() throws Throwable {
-        // 嵌套 @DBRouter 调用：内层退出后外层的 route 与基线必须恢复，不再被无条件清空
+    public void nestedInvocationThrows() throws Throwable {
+        // 不支持注解嵌套：外层切面帧仍在时，内层入口直接报错
         Method outerMethod = Fixture.class.getMethod("slaveRead", String.class);
         ProceedingJoinPoint outer = mockJoinPoint(outerMethod, Fixture.class, new Object[]{"u-1"});
         when(outer.proceed()).thenAnswer(invocation -> {
             assertEquals(Route.SLAVE, RouteContextHolder.getRoute());
-            final String outerDb = RouteContextHolder.getDbHolder();
-            org.junit.Assert.assertNotNull(outerDb);
+            org.junit.Assert.assertNotNull(RouteContextHolder.getDbHolder());
 
             Method innerMethod = Fixture.class.getMethod("annotated", String.class, String.class);
             ProceedingJoinPoint inner = mockJoinPoint(innerMethod, Fixture.class, new Object[]{"u-99", "o-99"});
-            when(inner.proceed()).thenAnswer(inv -> "inner-ok");
-            assertEquals("inner-ok", aspect.doRouter(inner));
+            try {
+                aspect.doRouter(inner);
+                fail("嵌套 @DBRouter 调用应抛出 ShardingException");
+            } catch (ShardingException expected) {
+                // 不支持嵌套
+            }
 
-            // 内层已退出：外层上下文应原样还在
+            // 报错不影响外层上下文
             assertEquals(Route.SLAVE, RouteContextHolder.getRoute());
-            assertEquals(outerDb, RouteContextHolder.getDbHolder());
+            org.junit.Assert.assertNotNull(RouteContextHolder.getDbHolder());
             return "outer-ok";
         });
 

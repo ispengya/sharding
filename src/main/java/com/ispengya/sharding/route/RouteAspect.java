@@ -29,8 +29,8 @@ import java.util.Map;
  *       与无规则表的语句沿用；同时入口即校验分库键可提取（fail-fast，不等到 SQL 执行）</li>
  * </ul>
  * SQL 触及分片表时，落点由语句级路由（ShardingRewriter.plan，按"这条 SQL + 这份参数"现场计算）
- * 覆盖基线，语句结束恢复——分库键的最终事实依据是 SQL，不是方法注解。
- * 上下文一律保存/恢复：嵌套 @DBRouter 调用返回后外层上下文不丢。
+ * 覆盖基线，语句结束清理——分库键的最终事实依据是 SQL，不是方法注解。
+ * 不支持嵌套：内层 @DBRouter 调用在入口直接报错，上下文在方法退出时清理。
  */
 @Aspect
 @Order(Ordered.LOWEST_PRECEDENCE - 1)
@@ -45,6 +45,11 @@ public class RouteAspect {
     @Around("(@annotation(com.ispengya.sharding.annotation.DBRouter) || @within(com.ispengya.sharding.annotation.DBRouter))")
     public Object doRouter(ProceedingJoinPoint jp) throws Throwable {
         Method method = ((MethodSignature) jp.getSignature()).getMethod();
+        // 不支持注解嵌套：route 非空即处于外层切面帧内，内层入口直接报错
+        if (RouteContextHolder.getRoute() != null) {
+            throw new ShardingException("@DBRouter 方法不支持嵌套调用，外层路由上下文仍在使用：方法 "
+                    + signature(method));
+        }
         Class<?> targetClass = jp.getTarget() != null ? jp.getTarget().getClass() : method.getDeclaringClass();
         Route route = resolveRouteRole(method, targetClass);
         if (route == Route.SLAVE && TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -52,10 +57,6 @@ public class RouteAspect {
                     + signature(method));
         }
         String baseline = resolveDbRoute(method, jp.getArgs(), targetClass);
-
-        // 保存外层上下文：嵌套调用返回后恢复，而非无条件清空
-        Route previousRoute = RouteContextHolder.getRoute();
-        String previousDb = RouteContextHolder.getDbHolder();
 
         RouteContextHolder.setRoute(route);
         if (baseline != null) {
@@ -66,16 +67,8 @@ public class RouteAspect {
         try {
             return jp.proceed();
         } finally {
-            if (previousRoute != null) {
-                RouteContextHolder.setRoute(previousRoute);
-            } else {
-                RouteContextHolder.clearRoute();
-            }
-            if (previousDb != null) {
-                RouteContextHolder.setDbHolder(previousDb);
-            } else {
-                RouteContextHolder.clearDbHolder();
-            }
+            RouteContextHolder.clearRoute();
+            RouteContextHolder.clearDbHolder();
         }
     }
 

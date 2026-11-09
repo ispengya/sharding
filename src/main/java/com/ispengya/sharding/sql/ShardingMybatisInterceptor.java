@@ -20,7 +20,7 @@ import java.util.Properties;
  * <ul>
  *   <li>调用 ShardingRewriter.plan 生成语句计划：分表改写 + 语句级分库路由
  *       （按这条 SQL 触及的表 + 这份参数现场计算，未标注解也路由）</li>
- *   <li>把计划的分库落点写入路由上下文覆盖方法基线，proceed（含选池）结束后恢复</li>
+ *   <li>把计划的分库落点写入路由上下文覆盖方法基线，proceed（含选池）结束后清理</li>
  * </ul>
  * 时机关键：此刻拿到的 Connection 还是逻辑连接，物理池在 proceed 内的
  * connection.prepareStatement 才选定——所以语句级取键来得及。
@@ -47,20 +47,17 @@ public class ShardingMybatisInterceptor implements Interceptor {
         metaObject.setValue("delegate.boundSql.sql", plan.getSql());
 
         // 分库落点按语句覆盖方法基线；未触及分库规则表则保持原上下文（基线或 primary）
-        String previousDb = RouteContextHolder.getDbHolder();
-        boolean overridden = plan.getDbRoute() != null;
-        if (overridden) {
-            RouteContextHolder.setDbHolder(plan.getDbRoute());
+        String dbRoute = plan.getDbRoute();
+        if (dbRoute != null) {
+            RouteContextHolder.setDbHolder(dbRoute);
         }
         try {
             return invocation.proceed();
         } finally {
-            if (overridden) {
-                if (previousDb == null) {
-                    RouteContextHolder.clearDbHolder();
-                } else {
-                    RouteContextHolder.setDbHolder(previousDb);
-                }
+            // 只撤本条语句写入的落点：一次 mapper 调用对应一次 prepare，
+            // 方法基线的生命周期由 RouteAspect 的 finally 负责
+            if (dbRoute != null) {
+                RouteContextHolder.clearDbHolder();
             }
         }
     }

@@ -332,12 +332,17 @@ prepared 分支在**分支会话被 KILL 后**仍出现在 `XA RECOVER` 名册�
 
 ---
 
-## 阶段 8：收尾与发布
+## 语义修订：取消路由上下文保存/恢复，嵌套注解直接报错
 
-**日期：** 未开始
+**日期：** 2026-11-09
 
-### 问题与修复
+### 决策
 
-| # | 问题 | 原因 | 修复方式 | 状态 |
-|---|---|---|---|---|
-| | | | | |
+- 前提：`@DBRouter` 只能标注在 Mapper 接口（`DBRouterPlacementValidator`），一次 Mapper 调用对应一次
+  `prepare`——语句帧与切面帧不会出现"多条语句共享基线"的窗口。基于此取消上一节的保存/恢复策略：
+  - `ShardingMybatisInterceptor`：语句级落点覆盖后直接清理，不再保存/恢复方法基线（基线的生命周期归切面）；
+  - `RouteAspect`：方法退出无条件清理 `route` 与基线，不再保存/恢复外层上下文；
+  - 嵌套 `@DBRouter` 调用（外层帧仍活跃）在入口直接抛 `ShardingException`，不再静默覆盖上下文。
+- 相应回归用例 `nestedInvocationRestoresOuterContext` 改为 `nestedInvocationThrows`（验证报错且外层上下文不受影响）。
+- 约束：不使用嵌套查询（`association/collection select=`）等"一次 Mapper 调用多次 prepare"的写法；
+  若将来引入，需恢复语句级 restore 并补真实可达的集成用例。
