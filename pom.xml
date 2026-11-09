@@ -4,7 +4,7 @@
     <groupId>io.github.ispengya</groupId>
     <artifactId>sharding</artifactId>
     <packaging>jar</packaging>
-    <version>0.0.1</version>
+    <version>0.1.0</version>
 
     <name>sharding</name>
     <description>基于 Spring Boot + MyBatis 的分库分表中间件：分片路由、读写分离、跨数据源事务（LOCAL / 2PC / 3PC）一体，配置驱动、注解即用。</description>
