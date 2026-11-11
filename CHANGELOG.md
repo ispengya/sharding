@@ -2,6 +2,17 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/)。
 
+## [Unreleased]
+
+### 修复
+
+- **分片键提取**：单标量参数（数字 / 字符串 / 日期时间，不加 `@Param`）即键值本身——
+  对齐 MyBatis 单简单参数"任意占位符名绑定整值"的语义，`getById(Long userId)` 裸参数也能路由；
+  枚举与数组刻意不按标量处理（identity hashCode 跨 JVM 不稳定，宁可报错）
+- **分片键提取**：多参数方法中的 Map 参数参与兜底提取（此前被跳过——
+  `query(@Param("cond") Map cond, ...)` 里 cond 携带分片键会报"无法提取分库键"）
+- **hash 算法**：键值为集合 / 数组 / Map 时直接报错，不再按整体 hashCode 静默路由到错误分片
+
 ## [0.1.0] - 2026-11-09
 
 首个公开版本。

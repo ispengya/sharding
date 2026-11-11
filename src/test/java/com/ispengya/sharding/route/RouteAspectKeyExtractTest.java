@@ -65,6 +65,10 @@ public class RouteAspectKeyExtractTest {
 
         void missing(@Param("foo") String foo, @Param("bar") String bar);
 
+        void singleLong(Long userId);
+
+        void withMap(@Param("cond") Map<String, Object> cond, @Param("limit") Integer limit);
+
         @DBRouter(route = Route.SLAVE)
         void slaveRead(@Param("userId") String userId);
     }
@@ -121,6 +125,27 @@ public class RouteAspectKeyExtractTest {
         Method method = Fixture.class.getMethod("bean", Order.class);
         assertEquals(expectedDs("u-100"),
                 aspect.resolveDbRoute(method, new Object[]{new Order()}, Fixture.class));
+    }
+
+    @Test
+    public void singleScalarLongParamRoutesWithoutParamAnnotation() throws Exception {
+        // 修复缺口：单 Long 不加 @Param 也按标量语义路由（对齐 MyBatis 单简单参数任意名绑定）
+        Method method = Fixture.class.getMethod("singleLong", Long.class);
+        Long value = 42L;
+        assertEquals(
+                new HashShardingAlgorithm().calculateDb(
+                        ShardingContext.forDb(value, Arrays.asList("ds_0", "ds_1"), null)),
+                aspect.resolveDbRoute(method, new Object[]{value}, Fixture.class));
+    }
+
+    @Test
+    public void mapParamInMultiArgMethodExtractsKey() throws Exception {
+        // 修复缺口：多参数方法中 Map 参数携带分片键（此前 fallback 跳过 Map 值，入口即报错）
+        Method method = Fixture.class.getMethod("withMap", Map.class, Integer.class);
+        Map<String, Object> cond = new HashMap<>();
+        cond.put("userId", "u-map");
+        assertEquals(expectedDs("u-map"),
+                aspect.resolveDbRoute(method, new Object[]{cond, 10}, Fixture.class));
     }
 
     @Test(expected = ShardingException.class)

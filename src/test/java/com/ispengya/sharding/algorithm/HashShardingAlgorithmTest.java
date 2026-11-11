@@ -1,13 +1,16 @@
 package com.ispengya.sharding.algorithm;
 
+import com.ispengya.sharding.exception.ShardingException;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Hash 分片算法测试：锁定输出形态（数据源名来自 databases 列表、物理表名 {logic}_{下标}），
@@ -47,4 +50,50 @@ public class HashShardingAlgorithmTest {
         }
         assertEquals(2, routed.size());
     }
+
+    @Test
+    public void nullValueThrows() {
+        try {
+            algorithm.calculateDb(ShardingContext.forDb(null, Arrays.asList("ds_0", "ds_1"), null));
+            fail("空键值应抛出 ShardingException");
+        } catch (ShardingException expected) {
+            // 既有行为：空值报错
+        }
+    }
+
+    @Test
+    public void collectionValueThrowsInsteadOfSilentRoute() {
+        // 修复缺口：IN 类集合键值无法确定唯一落点——报错，而非按 List 整体 hashCode 静默路由
+        try {
+            algorithm.calculateDb(
+                    ShardingContext.forDb(Arrays.asList("u-1", "u-2"), Arrays.asList("ds_0", "ds_1"), null));
+            fail("集合键值应抛出 ShardingException");
+        } catch (ShardingException expected) {
+            assertTrue(expected.getMessage().contains("单值"));
+        }
+    }
+
+    @Test
+    public void arrayValueThrowsInsteadOfSilentRoute() {
+        try {
+            algorithm.calculateDb(
+                    ShardingContext.forDb(new String[]{"u-1"}, Arrays.asList("ds_0", "ds_1"), null));
+            fail("数组键值应抛出 ShardingException");
+        } catch (ShardingException expected) {
+            // 数组 hashCode 为 identity，静默路由跨重启不稳定
+        }
+    }
+
+    @Test
+    public void mapValueThrowsInsteadOfSilentRoute() {
+        // 嵌套 Map 作为键值（如 {"userId": {...}} 的内层）同样无法单值路由
+        try {
+            algorithm.calculateDb(
+                    ShardingContext.forDb(new HashMap<String, Object>(), Arrays.asList("ds_0", "ds_1"), null));
+            fail("Map 键值应抛出 ShardingException");
+        } catch (ShardingException expected) {
+            // Map 整体 hashCode 语义不明
+        }
+    }
 }
+
