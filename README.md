@@ -139,17 +139,6 @@ sharding:
 
 **模式选择**：一般业务用 `LOCAL`（无原子性，失败靠明细日志对账）；要求强一致用 `XA`（推荐）或 `THREE_PC`。
 
-## 构建与测试
-
-- 构建 JDK：**8**（`scripts/test.sh` 会自动切换本机 JDK）
-- 单测 + 集成测试（需 Docker，一键起真实 MySQL 三节点：2 主分库 + 1 从读写分离）：
-
-```shell
-bash scripts/test.sh                                  # 起环境 → 等健康 → 全量测试
-mvn test -Dtest='!*IntegrationTest'                   # 无 Docker 时仅跑单测
-```
-
-当前 158 个用例（单测 + 真实 MySQL 集成），覆盖分片路由、读写分离、事务三模式与崩溃恢复。
 
 ## 注意事项
 
@@ -161,6 +150,4 @@ mvn test -Dtest='!*IntegrationTest'                   # 无 Docker 时仅跑单�
 
 ## 版本与许可
 
-- `0.1.1`（修复版）——分片键提取兼容更多 mapper 参数形态（单标量裸参、多参数中的 Map），hash 算法拒绝集合键值
-- `0.1.0`（首个公开版本）——配置模型、包结构与旧版（`dbRule`/`strategyClass`）完全不兼容，详见 [docs/journal.md](docs/journal.md)
 - 开源许可：[MIT License](LICENSE)
