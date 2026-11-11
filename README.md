@@ -19,7 +19,7 @@
 <dependency>
     <groupId>io.github.ispengya</groupId>
     <artifactId>sharding</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 
@@ -161,5 +161,6 @@ mvn test -Dtest='!*IntegrationTest'                   # 无 Docker 时仅跑单�
 
 ## 版本与许可
 
+- `0.1.1`（修复版）——分片键提取兼容更多 mapper 参数形态（单标量裸参、多参数中的 Map），hash 算法拒绝集合键值
 - `0.1.0`（首个公开版本）——配置模型、包结构与旧版（`dbRule`/`strategyClass`）完全不兼容，详见 [docs/journal.md](docs/journal.md)
 - 开源许可：[MIT License](LICENSE)
