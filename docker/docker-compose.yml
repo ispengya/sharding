@@ -1,0 +1,65 @@
+# 测试专用 MySQL 三节点环境（项目自带，用完即弃）：
+#   mysql-master-1 :33061  db_1  分片1主库（同时作为读写分离组的主）
+#   mysql-master-2 :33062  db_2  分片2主库
+#   mysql-slave    :33063        复制自 master-1（读写分离从库；db_1 由复制产生，不预建）
+# 容器名前缀 sharding-test-*，与开发者本机其他 MySQL 容器（sharding-mysql-* / dev-mysql-*）隔离。
+# 数据不持久化（匿名卷）：reset = docker compose -f docker/docker-compose.yml down -v
+# 账号：root / root；从库复制账号 repl / repl（master-1 初始化时创建）
+# 由 scripts/test.sh / scripts/perf-e2e.sh 统一拉起与清理。
+services:
+  mysql-master-1:
+    image: mysql:5.7
+    container_name: sharding-test-master-1
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: db_1
+    ports:
+      - "33061:3306"
+    volumes:
+      - ./mysql-init/master:/docker-entrypoint-initdb.d
+    command: --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --expire-logs-days=7
+    healthcheck:
+      # 用 TCP 探测：初始化阶段临时实例只开 socket，TCP 通了才算初始化完成
+      test: ["CMD", "mysqladmin", "ping", "-h127.0.0.1", "-uroot", "-proot", "--silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  mysql-master-2:
+    image: mysql:5.7
+    container_name: sharding-test-master-2
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: db_2
+    ports:
+      - "33062:3306"
+    volumes:
+      - ./mysql-init/master:/docker-entrypoint-initdb.d
+    command: --server-id=2
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h127.0.0.1", "-uroot", "-proot", "--silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  mysql-slave:
+    image: mysql:5.7
+    container_name: sharding-test-slave
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      # 刻意不设 MYSQL_DATABASE：db_1 由复制创建，预建会导致复制线程 1007 报错停摆
+    ports:
+      - "33063:3306"
+    volumes:
+      - ./mysql-init/slave/slave-init.sh:/docker-entrypoint-initdb.d/01_slave_init.sh:ro
+    # relay-log 去容器名化：recreate 复用旧匿名卷时，避免 relay log 因 hostname 变化断裂
+    command: --server-id=3 --relay-log=relay-bin --relay-log-index=relay-bin.index
+    depends_on:
+      mysql-master-1:
+        condition: service_healthy
+    healthcheck:
+      # 双线程就绪 + 数据已同步（db_1 与物理表出现）才算健康，避免初始化期假阳性
+      test: ["CMD-SHELL", "mysql -uroot -proot -e 'SHOW SLAVE STATUS\\G' 2>/dev/null | grep -q 'Slave_IO_Running: Yes' && mysql -uroot -proot -e 'SHOW SLAVE STATUS\\G' 2>/dev/null | grep -q 'Slave_SQL_Running: Yes' && mysql -uroot -proot -N -e 'SHOW TABLES FROM db_1' 2>/dev/null | grep -q 't_order_0'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60

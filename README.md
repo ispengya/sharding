@@ -15,13 +15,27 @@
 
 ### 1. 引入依赖
 
+按你的 Spring Boot 版本选择 starter（核心由 starter 传递引入）：
+
 ```xml
+<!-- Spring Boot 2.x 应用（Java 8+） -->
 <dependency>
     <groupId>io.github.ispengya</groupId>
-    <artifactId>sharding</artifactId>
-    <version>0.1.1</version>
+    <artifactId>sharding-boot2-starter</artifactId>
+    <version>0.2.0</version>
 </dependency>
 ```
+
+```xml
+<!-- Spring Boot 3.x 应用（Java 17+） -->
+<dependency>
+    <groupId>io.github.ispengya</groupId>
+    <artifactId>sharding-boot3-starter</artifactId>
+    <version>0.2.0</version>
+</dependency>
+```
+
+配置与注解在两条装配线上完全一致（下文通用）。
 
 ### 2. 配置
 

@@ -1,0 +1,35 @@
+# 集成测试配置（新定稿形状）：真实 MySQL 三节点，见 docker-compose.yml
+sharding:
+  primary: ds_0
+
+  dataSources:
+    ds_0:
+      master:
+        driverClassName: com.mysql.cj.jdbc.Driver
+        url: jdbc:mysql://localhost:33061/db_1?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
+        username: root
+        password: root
+      slaves:                          # 阶段 3：ds_0 开读写分离（复制自 master-1，server_id=3）
+        - driverClassName: com.mysql.cj.jdbc.Driver
+          url: jdbc:mysql://localhost:33063/db_1?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
+          username: root
+          password: root
+      loadBalance: round_robin
+    ds_1:                             # 不配 slaves → SLAVE 降级按 master 处理
+      master:
+        driverClassName: com.mysql.cj.jdbc.Driver
+        url: jdbc:mysql://localhost:33062/db_2?serverTimezone=UTC&useSSL=false&characterEncoding=utf8
+        username: root
+        password: root
+
+  # rules 不配置的逻辑表不分片、落 primary 直通；此处仅 t_order 参与分片
+  rules:
+    t_order:
+      db:
+        databases: [ds_0, ds_1]
+        shardingKey: userId
+        algorithm: hash
+      table:
+        shardingKey: orderId
+        algorithm: hash
+        tableCount: 2

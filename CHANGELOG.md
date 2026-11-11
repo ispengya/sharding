@@ -2,6 +2,37 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/)。
 
+## [0.2.0] - 未发布
+
+### 破坏性变更（依赖坐标）
+
+- **多模块化**：单 artifact `io.github.ispengya:sharding` 拆分为三个坐标，使用方按自身
+  Spring Boot 版本选择 starter（core 由 starter 传递引入，无需单独声明）：
+  - `sharding-core` —— 零 Spring Boot 依赖的核心（Java 8 字节码基线）
+  - `sharding-boot2-starter` —— Spring Boot 2.x 应用（Java 8+，Boot 2.1 起兼容）
+  - `sharding-boot3-starter` —— Spring Boot 3.x 应用（Java 17+，jakarta 线）
+- 配置键、注解与 API 与 0.1.x 完全一致，仅 Maven 坐标变化
+
+### 新增
+
+- **Spring Boot 3 支持**：`AutoConfiguration.imports` 装配 + MyBatis starter 3.x +
+  `com.mysql:mysql-connector-j`；core 的 Spring 编译面锁定 5.1 API（provided，
+  运行时兼容 Spring 5.1 ~ 6.x，XA/JDBC 均为 JDK 内置 API，无 jakarta 迁移负担）
+- **双 JDK 测试矩阵**：`scripts/test.sh` 一键跑 JDK 8（core + boot2，严格 8 全链路）
+  与 JDK 17（全 reactor 含 Boot 3 集成）两腿；测试环境收编项目内 `docker/`
+  （容器 `sharding-test-*`，即起即新，结束自动 `down -v`）
+- 脚本环境自适应：Git Bash / WSL（经 `cmd.exe` 调 Windows Maven）/ 原生 Linux 均可执行
+
+### 修复
+
+- **事务日志明细丢失（3PC 阶段超时路径）**：被中断的 stage 线程与主线程兜底回滚并发各写一次
+  `ROLLED_BACK` 时，收尾写（`detail=null`）会覆盖失败写的诊断明细（"prepare 失败节点=…"）——
+  排障关键时刻线索被抹掉。修复：`detail` 为空视为"无新信息"不覆盖已有明细（SQL 层
+  `COALESCE(NULLIF(?, ''), detail)`），已有异常明细在终态后保留作为审计轨迹；
+  新增集成用例固化该语义（双写竞态后明细保留）
+- 测试依赖升级 Mockito 4.11（唯一同时兼容 JDK 8 与 17 的主线），并修正 3PC 阶段超时
+  用例对"中断的 stage 线程与主线程兜底回滚并发写日志"的计数敏感断言（改为状态语义断言）
+
 ## [0.1.1] - 2026-11-11
 
 ### 修复
